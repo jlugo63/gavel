@@ -117,7 +117,18 @@ export default async function IntentsPage({
                           intentEventId={intent.id}
                           policyEventId={intent.policy_event_id}
                           isApproved={intent.is_approved}
+                          isDenied={intent.is_denied}
                         />
+                      ) : intent.is_approved ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          APPROVED
+                        </span>
+                      ) : intent.is_denied ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-red-950 text-red-300">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+                          DENIED
+                        </span>
                       ) : intent.policy_decision === "APPROVED" ? (
                         <span className="text-xs text-zinc-600 font-mono">
                           Auto

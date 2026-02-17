@@ -7,13 +7,15 @@ export function ApproveButton({
   intentEventId,
   policyEventId,
   isApproved,
+  isDenied,
 }: {
   intentEventId: string;
   policyEventId: string;
   isApproved: boolean;
+  isDenied: boolean;
 }) {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<"approve" | "deny" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (isApproved) {
@@ -25,12 +27,21 @@ export function ApproveButton({
     );
   }
 
-  async function handleApprove() {
-    setLoading(true);
+  if (isDenied) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded bg-red-950 text-red-300">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+        DENIED
+      </span>
+    );
+  }
+
+  async function handleAction(action: "approve" | "deny") {
+    setLoading(action);
     setError(null);
 
     try {
-      const resp = await fetch("/api/approve", {
+      const resp = await fetch(`/api/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -41,27 +52,33 @@ export function ApproveButton({
 
       if (!resp.ok) {
         const data = await resp.json();
-        setError(data.detail ?? data.error ?? "Approval failed");
+        setError(data.detail ?? data.error ?? `${action} failed`);
         return;
       }
 
-      // Refresh the page to show updated data from the Audit Spine
       router.refresh();
     } catch {
       setError("Network error");
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1.5">
       <button
-        onClick={handleApprove}
-        disabled={loading}
-        className="text-xs font-mono px-2 py-1 rounded bg-amber-800 hover:bg-amber-700 text-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+        onClick={() => handleAction("approve")}
+        disabled={loading !== null}
+        className="text-xs font-mono px-2 py-1 rounded bg-emerald-800 hover:bg-emerald-700 text-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
       >
-        {loading ? "Approving..." : "Approve"}
+        {loading === "approve" ? "..." : "Approve"}
+      </button>
+      <button
+        onClick={() => handleAction("deny")}
+        disabled={loading !== null}
+        className="text-xs font-mono px-2 py-1 rounded bg-red-800 hover:bg-red-700 text-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+      >
+        {loading === "deny" ? "..." : "Deny"}
       </button>
       {error && (
         <span className="text-xs text-red-400">{error}</span>

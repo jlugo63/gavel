@@ -88,6 +88,7 @@ export async function getIntentsWithPolicyEvals(
     policy_risk_score: number | null;
     policy_event_id: string | null;
     is_approved: boolean;
+    is_denied: boolean;
   })[];
   total: number;
 }> {
@@ -98,15 +99,20 @@ export async function getIntentsWithPolicyEvals(
   );
 
   // For each INBOUND_INTENT, find the closest subsequent POLICY_EVAL
-  // for the same actor_id within 10 seconds, and check for HUMAN_APPROVAL_GRANTED.
+  // for the same actor_id within 10 seconds, check for HUMAN_APPROVAL_GRANTED,
+  // and check for APPROVAL_CONSUMED (gateway override after re-submit).
   const dataResult = await pool.query(
     `SELECT
        i.id, i.created_at, i.actor_id, i.action_type,
        i.intent_payload, i.policy_version, i.event_hash, i.previous_event_hash,
-       p.intent_payload->>'decision'   AS policy_decision,
+       CASE WHEN d.id IS NOT NULL THEN 'DENIED'
+            WHEN ac.id IS NOT NULL THEN 'APPROVED'
+            ELSE p.intent_payload->>'decision'
+       END AS policy_decision,
        (p.intent_payload->>'risk_score')::float AS policy_risk_score,
        p.id::text                      AS policy_event_id,
-       (a.id IS NOT NULL)              AS is_approved
+       (a.id IS NOT NULL OR ac.id IS NOT NULL) AS is_approved,
+       (d.id IS NOT NULL)              AS is_denied
      FROM audit_events i
      LEFT JOIN LATERAL (
        SELECT pe.id, pe.intent_payload
@@ -125,6 +131,20 @@ export async function getIntentsWithPolicyEvals(
          AND ae.intent_payload->>'intent_event_id' = i.id::text
        LIMIT 1
      ) a ON true
+     LEFT JOIN LATERAL (
+       SELECT ce.id
+       FROM audit_events ce
+       WHERE ce.action_type = 'APPROVAL_CONSUMED'
+         AND ce.intent_payload->>'current_intent_event_id' = i.id::text
+       LIMIT 1
+     ) ac ON true
+     LEFT JOIN LATERAL (
+       SELECT de.id
+       FROM audit_events de
+       WHERE de.action_type = 'HUMAN_DENIAL'
+         AND de.intent_payload->>'intent_event_id' = i.id::text
+       LIMIT 1
+     ) d ON true
      WHERE i.action_type = 'INBOUND_INTENT'
      ORDER BY i.created_at DESC, i.id DESC
      LIMIT $1 OFFSET $2`,
@@ -139,6 +159,7 @@ export async function getIntentsWithPolicyEvals(
       policy_risk_score: r.policy_risk_score != null ? Number(r.policy_risk_score) : null,
       policy_event_id: (r.policy_event_id as string) ?? null,
       is_approved: Boolean(r.is_approved),
+      is_denied: Boolean(r.is_denied),
     })),
   };
 }
