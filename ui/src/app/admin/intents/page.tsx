@@ -1,6 +1,7 @@
 import { getIntentsWithPolicyEvals } from "@/lib/db";
 import { ExpandableRow } from "@/components/expandable-row";
 import { Pagination } from "@/components/pagination";
+import { ApproveButton } from "@/components/approve-button";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export default async function IntentsPage({
               <th className="px-3 py-2">Intent Action</th>
               <th className="px-3 py-2">Policy Decision</th>
               <th className="px-3 py-2">Risk Score</th>
+              <th className="px-3 py-2">Human Approval</th>
               <th className="px-3 py-2 w-8"></th>
             </tr>
           </thead>
@@ -64,6 +66,7 @@ export default async function IntentsPage({
             {intents.map((intent) => {
               const payload = intent.intent_payload as Record<string, unknown>;
               const intentAction = (payload.action_type as string) ?? "unknown";
+              const isEscalated = intent.policy_decision === "ESCALATED";
 
               return (
                 <ExpandableRow
@@ -106,6 +109,25 @@ export default async function IntentsPage({
                         </span>
                       ) : (
                         <span className="text-zinc-600">-</span>
+                      )}
+                    </span>,
+                    <span key="approve">
+                      {isEscalated && intent.policy_event_id ? (
+                        <ApproveButton
+                          intentEventId={intent.id}
+                          policyEventId={intent.policy_event_id}
+                          isApproved={intent.is_approved}
+                        />
+                      ) : intent.policy_decision === "APPROVED" ? (
+                        <span className="text-xs text-zinc-600 font-mono">
+                          Auto
+                        </span>
+                      ) : intent.policy_decision === "DENIED" ? (
+                        <span className="text-xs text-zinc-600 font-mono">
+                          N/A
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-600">-</span>
                       )}
                     </span>,
                   ]}
