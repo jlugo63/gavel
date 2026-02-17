@@ -8,3 +8,7 @@ governance_db/data/
 # Environment files
 .env
 .env.local
+
+# Internal progress tracker (private)
+PROGRESS.md
+PROGRESS_THE_DREAM.md
