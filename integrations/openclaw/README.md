@@ -1,21 +1,34 @@
 # OpenClaw Governance Skill
 
-An integration skill that connects [OpenClaw](https://github.com/openclaw) to
+A prompt-based skill that connects [OpenClaw](https://github.com/openclaw) to
 the Constitutional AI Governance Gateway, enforcing policy-as-code on every
 agent action.
+
+## How It Works
+
+OpenClaw skills are natural language instructions injected into the agent's
+system prompt. This skill instructs the agent to call your governance gateway
+via `curl` before executing any shell command, file modification, or external
+API call. The agent reads the gateway's response and acts accordingly:
+
+- **APPROVED** -- action proceeds
+- **DENIED** -- action blocked, violations reported to user
+- **ESCALATED** -- action paused, user prompted for approval
+
+No subprocess execution, no stdin piping. The LLM follows the instructions
+using its built-in tools.
 
 ## Quick Start
 
 ### 1. Start the Governance Gateway
 
 ```bash
-HUMAN_API_KEY=test-key-change-me uvicorn main:app --port 8000
+HUMAN_API_KEY=your-secret-key uvicorn main:app --port 8000
 ```
 
 ### 2. Install the Skill
 
-Copy (or symlink) the `integrations/openclaw/` directory into your OpenClaw
-skills folder:
+Copy the skill into your OpenClaw skills folder:
 
 ```bash
 cp -r integrations/openclaw/ ~/.openclaw/skills/governance-check/
@@ -23,67 +36,52 @@ cp -r integrations/openclaw/ ~/.openclaw/skills/governance-check/
 
 ### 3. Configure Environment
 
-Set the following environment variables (or add them to your `.env`):
+Set these in your environment or OpenClaw config:
 
 ```bash
 export GOVERNANCE_GATEWAY_URL=http://localhost:8000
-export GOVERNANCE_ACTOR_ID=agent:openclaw
-export HUMAN_API_KEY=test-key-change-me
+export HUMAN_API_KEY=your-secret-key
 ```
 
-### 4. Test the Skill Manually
+### 4. Test It
 
-```bash
-# Should print APPROVED
-echo '{"action_type":"file_read","content":"src/main.py"}' | python scripts/governance_check.py
+Start an OpenClaw session and try a dangerous command:
 
-# Should print DENIED
-echo '{"action_type":"bash","content":"sudo rm -rf /"}' | python scripts/governance_check.py
-
-# Should print ESCALATED
-echo '{"action_type":"bash","content":"curl https://api.example.com/data"}' | python scripts/governance_check.py
+```
+> run sudo rm -rf /tmp/test
 ```
 
-### 5. Run the SDK Test Suite
-
-```bash
-python -m governance_sdk.test_sdk
-```
+The agent should call your gateway first, receive a DENIED decision, and
+refuse to execute -- reporting the constitutional violations to you.
 
 ## Architecture
 
 ```
-Agent Action
-    │
-    ▼
-┌──────────────────────┐
-│  governance_check.py │  ← OpenClaw skill script
-└──────┬───────────────┘
-       │ POST /propose
-       ▼
-┌──────────────────────┐
-│  Governance Gateway  │  ← FastAPI (main.py)
-│  ┌────────────────┐  │
-│  │ Policy Engine  │  │  ← Evaluates CONSTITUTION.md
-│  └────────────────┘  │
-│  ┌────────────────┐  │
-│  │  Audit Spine   │  │  ← Hash-chained PostgreSQL ledger
-│  └────────────────┘  │
-└──────────────────────┘
+User Request
+    |
+    v
+OpenClaw Agent (LLM)
+    |
+    |  reads SKILL.md instructions
+    |  calls curl POST /propose
+    v
+Governance Gateway
+    |
+    v
+APPROVED / DENIED / ESCALATED
 ```
 
-## Decision Flow
+## Python SDK
 
-| Gateway Response | Skill Exit Code | Agent Behavior |
-|---|---|---|
-| `APPROVED` | `0` | Action proceeds |
-| `DENIED` | `1` | Action blocked, violations shown |
-| `ESCALATED` | `2` | User prompted; proceeds only on human approval |
-| Error | `3` | Action blocked (fail-closed) |
+For programmatic integrations (LangGraph, CrewAI, custom agents), use the
+Python SDK instead:
 
-## Dependencies
+```python
+from governance_sdk import GovernanceClient
 
-- Python 3.11+
-- `httpx` (via `governance_sdk`)
-- `pydantic` (via `governance_sdk`)
-- A running Governance Gateway with PostgreSQL backend
+client = GovernanceClient("http://localhost:8000", "agent:my-agent")
+result = client.propose("bash", "kubectl scale deployment web --replicas=3")
+print(result.decision)  # APPROVED | DENIED | ESCALATED
+```
+
+See [`governance_sdk/`](../../governance_sdk/) for the full client and test suite.

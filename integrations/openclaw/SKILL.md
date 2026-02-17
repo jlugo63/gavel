@@ -1,48 +1,56 @@
 ---
 name: governance-check
-description: Submit proposed actions to the Constitutional AI Governance Gateway for policy evaluation before execution.
-version: 1.0.0
-author: jlugo63
-triggers:
-  - before_bash
-  - before_file_write
-  - before_file_edit
-scripts:
-  - scripts/governance_check.py
-env:
-  GOVERNANCE_GATEWAY_URL: http://localhost:8000
-  GOVERNANCE_ACTOR_ID: agent:openclaw
+description: Submit proposed actions to a governance gateway for policy evaluation before executing shell commands, file modifications, or external API calls.
+metadata: {"openclaw":{"requires":{"env":["GOVERNANCE_GATEWAY_URL","HUMAN_API_KEY"]},"primaryEnv":"HUMAN_API_KEY"}}
 ---
 
-# Governance Check Skill
+## Governance Check
 
-This skill enforces the **Constitutional AI Control Plane** by intercepting
-proposed actions and submitting them to the Governance Gateway for policy
-evaluation *before* execution.
+You are operating under a **Constitutional AI Governance Policy**. Before executing any action that modifies the system, you MUST submit it to the governance gateway for approval.
 
-## How It Works
+### Actions that require governance approval
 
-1. **Intercept** — When OpenClaw is about to run a bash command, write a file,
-   or edit a file, this skill fires first.
-2. **Propose** — The action type and content are sent to the Governance Gateway
-   via `POST /propose`.
-3. **Decide** — Based on the gateway's response:
-   - **APPROVED** → The action proceeds normally.
-   - **ESCALATED** → The action is paused and the user is prompted to approve
-     or deny. If approved, the skill calls `POST /approve` to record consent.
-   - **DENIED** → The action is blocked with an explanation of which
-     constitutional provisions were violated.
+- Any shell command (`bash`, `exec`, `shell`)
+- Any file write, file edit, or file delete
+- Any external API call (`curl`, `wget`, `http`)
+- Any package installation or dependency change
+- Any deployment, scaling, or infrastructure change
 
-## Requirements
+### Required workflow
 
-- Python 3.11+
-- `governance_sdk` package (included in this repository)
-- A running Governance Gateway at the configured `GOVERNANCE_GATEWAY_URL`
+**Step 1: Submit a proposal before acting.**
 
-## Environment Variables
+For every action listed above, call the governance gateway FIRST:
 
-| Variable | Default | Description |
-|---|---|---|
-| `GOVERNANCE_GATEWAY_URL` | `http://localhost:8000` | Base URL of the Governance Gateway |
-| `GOVERNANCE_ACTOR_ID` | `agent:openclaw` | Actor identity for audit logging |
-| `HUMAN_API_KEY` | *(none)* | Bearer token for approving escalated proposals |
+```bash
+curl -s -X POST "${GOVERNANCE_GATEWAY_URL:-http://localhost:8000}/propose" \
+  -H "Content-Type: application/json" \
+  -d '{"actor_id": "agent:openclaw", "action_type": "ACTION_TYPE_HERE", "content": "THE_EXACT_COMMAND_OR_OPERATION"}'
+```
+
+Replace `ACTION_TYPE_HERE` with one of: `bash`, `file_write`, `file_edit`, `file_read`, `api_call`.
+Replace `THE_EXACT_COMMAND_OR_OPERATION` with the literal command or file path you intend to act on.
+
+**Step 2: Read the `decision` field from the JSON response.**
+
+- **`APPROVED`** -- Proceed with the action normally.
+- **`DENIED`** -- Do NOT execute the action. Report the `violations` array to the user. Explain which constitutional provisions were violated and why.
+- **`ESCALATED`** -- Do NOT execute the action yet. Tell the user this action requires human approval. Show them the `risk_score` and the `intent_event_id`. Wait for the user to decide.
+
+**Step 3: If the user approves an ESCALATED action, record their approval:**
+
+```bash
+curl -s -X POST "${GOVERNANCE_GATEWAY_URL:-http://localhost:8000}/approve" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${HUMAN_API_KEY}" \
+  -d '{"intent_event_id": "THE_INTENT_ID", "policy_event_id": "THE_POLICY_ID"}'
+```
+
+Then proceed with the original action.
+
+### Rules
+
+1. **NEVER skip governance check.** Every covered action must be proposed first.
+2. **NEVER execute a DENIED action.** No exceptions, no workarounds.
+3. **Fail closed.** If the gateway is unreachable or returns an error, do NOT execute the action. Tell the user the governance gateway is unavailable.
+4. **Be transparent.** Always tell the user what decision the gateway returned and why.
