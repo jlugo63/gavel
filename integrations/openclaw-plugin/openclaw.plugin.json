@@ -1,0 +1,24 @@
+{
+  "id": "constitutional-governance",
+  "name": "Constitutional Governance",
+  "description": "Mechanical enforcement of AI governance policy. Intercepts every tool call via before_tool_call hook and requires gateway approval before execution.",
+  "version": "1.0.0",
+  "main": "dist/plugin/index.js",
+  "hooks": ["before_tool_call"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "gatewayUrl": {
+        "type": "string",
+        "default": "http://localhost:8000",
+        "description": "URL of the Constitutional Governance Gateway"
+      },
+      "failOpen": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, allow actions when gateway is unreachable. Default: fail closed."
+      }
+    }
+  }
+}

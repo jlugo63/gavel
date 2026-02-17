@@ -1,0 +1,43 @@
+{
+  "name": "@constitutional/openclaw-governance",
+  "version": "1.0.0",
+  "description": "Constitutional AI governance plugin for OpenClaw — mechanical enforcement via before_tool_call hook",
+  "main": "dist/plugin/index.js",
+  "types": "dist/plugin/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "governance",
+    "ai-agents",
+    "openclaw",
+    "security",
+    "policy-enforcement",
+    "audit",
+    "constitutional"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlugo63/constitutional-control-plane.git",
+    "directory": "integrations/openclaw-plugin"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "openclaw": {
+    "extensions": ["dist/plugin/index.js"]
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}
