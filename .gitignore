@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.pyc
+
+# PostgreSQL data volume (managed by Docker)
+governance_db/data/
+
+# Environment files
+.env
+.env.local
