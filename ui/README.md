@@ -35,7 +35,7 @@ hash chain on each load. If tampering is detected, a critical alert is shown.
 
 ## Architecture
 
-- **Next.js 15 App Router** with `force-dynamic` on all routes (no caching)
+- **Next.js 16 App Router** with `force-dynamic` on all routes (no caching)
 - **Server Components** for direct DB access via `pg` (node-postgres)
 - **Zod** for runtime validation of database rows
 - **Tailwind CSS** for styling
