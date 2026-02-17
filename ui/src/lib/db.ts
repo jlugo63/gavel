@@ -1,6 +1,6 @@
 /**
  * Database Helper — SELECT-Only Audit Spine Access
- * Constitutional Reference: §I.1 — Immutable History
+ * Gavel Reference: §I.1 — Immutable History
  *
  * This module provides READ-ONLY parameterized queries against
  * the governance_control_plane database. No UPDATE/DELETE/INSERT

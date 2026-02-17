@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Governance Control Plane",
-  description: "Constitutional AI monitoring dashboard",
+  title: "Gavel",
+  description: "Gavel governance monitoring dashboard",
 };
 
 export default function RootLayout({

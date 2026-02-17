@@ -82,7 +82,7 @@ export default async function PolicyPage({
       <h1 className="text-lg font-bold mb-4 text-zinc-200">
         Policy Decisions
         <span className="ml-2 text-sm font-normal text-zinc-500">
-          Constitutional evaluation outcomes
+          Governance evaluation outcomes
         </span>
       </h1>
 

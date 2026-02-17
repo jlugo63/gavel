@@ -1,9 +1,9 @@
-# Governance Control Plane — Dashboard UI
+# Gavel — Dashboard UI
 
-Read-only monitoring dashboard for the Constitutional AI Control Plane.
+Read-only monitoring dashboard for Gavel.
 Displays audit events, inbound intents, and policy decisions from the Audit Spine.
 
-**Constitutional Reference:** This dashboard is monitoring-only per §I.1 (Immutable History).
+**Gavel Reference:** This dashboard is monitoring-only per §I.1 (Immutable History).
 All database access is SELECT-only — no INSERT, UPDATE, or DELETE code paths exist.
 
 ## Prerequisites
