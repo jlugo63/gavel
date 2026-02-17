@@ -56,9 +56,19 @@ function mapToolToActionType(toolName: string): string {
 // Content extraction
 // ---------------------------------------------------------------------------
 
-function extractContent(_toolName: string, params: Record<string, unknown>): string {
-  // Try common parameter names for the "content" of the action
-  const candidates = ["command", "cmd", "input", "content", "path", "file_path", "url", "query"];
+function extractContent(actionType: string, params: Record<string, unknown>): string {
+  // For file operations, the path is what the policy engine needs to check
+  if (actionType === "file_write" || actionType === "file_read") {
+    const pathCandidates = ["path", "file_path", "filePath", "filename"];
+    for (const key of pathCandidates) {
+      if (typeof params[key] === "string") {
+        return params[key] as string;
+      }
+    }
+  }
+
+  // For shell/api operations, extract the command or URL
+  const candidates = ["command", "cmd", "input", "content", "url", "query", "path", "file_path"];
   for (const key of candidates) {
     if (typeof params[key] === "string") {
       return params[key] as string;
@@ -110,7 +120,7 @@ export function createToolCallHook(
 ): (event: BeforeToolCallEvent, ctx: ToolContext) => Promise<BeforeToolCallResult | void> {
   return async (event: BeforeToolCallEvent, _ctx: ToolContext): Promise<BeforeToolCallResult | void> => {
     const actionType = mapToolToActionType(event.toolName);
-    const content = extractContent(event.toolName, event.params);
+    const content = extractContent(actionType, event.params);
 
     let response: ProposalResponse;
     try {
