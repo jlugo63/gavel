@@ -14,8 +14,9 @@ AI agents execute shell commands, send emails, deploy code, and install plugins 
 - **Hash-chained, append-only audit ledger** -- tamper-proof (PostgreSQL + SHA-256 chain)
 - **Deterministic policy engine** evaluates risk against a written constitution
 - **APPROVED / DENIED / ESCALATED** decisions with risk scores
-- **Human approval flow** for high-risk actions (`POST /approve` with Bearer auth)
-- **Read-only governance dashboard** with live chain integrity verification
+- **Human approval flow** for high-risk actions (`POST /approve` + `POST /deny`)
+- **Approval-aware re-submit** -- approved ESCALATED actions auto-clear on retry (one-time-use, time-bounded, actor-scoped)
+- **Read-only governance dashboard** with live chain integrity, approve/deny buttons
 - **Python SDK** for any agent framework
 - **OpenClaw governance plugin** included
 
@@ -24,8 +25,8 @@ AI agents execute shell commands, send emails, deploy code, and install plugins 
 ## Quickstart
 
 ```bash
-git clone https://github.com/jlugo63/constitutional-control-plane.git
-cd constitutional-control-plane
+git clone https://github.com/jlugo63/gavel.git
+cd gavel
 cp .env.example .env
 docker compose up -d
 ```
@@ -68,11 +69,47 @@ APPROVED    ESCALATED    DENIED
 (200)       (202)        (403)
               |
               v
-         POST /approve
-       (human decision)
+     Dashboard / API
+  Approve or Deny (human)
+              |
+              v
+     Agent re-submits
+     POST /propose
+              |
+              v
+   APPROVED (approval consumed)
 ```
 
 Every event is hash-chained: `SHA-256(previous_hash + actor + action + payload + timestamp)`. UPDATE and DELETE are blocked at the database level. Tamper with one row and the chain breaks -- the dashboard shows it immediately.
+
+---
+
+## API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Service health check |
+| `/propose` | POST | Submit an action for policy evaluation |
+| `/approve` | POST | Human approval for ESCALATED action (Bearer auth) |
+| `/deny` | POST | Human denial for ESCALATED action (Bearer auth) |
+
+### Proposal flow
+
+```bash
+# Submit a proposal
+curl -X POST http://localhost:8000/propose \
+  -H "Content-Type: application/json" \
+  -d '{"actor_id": "agent:my-bot", "action_type": "bash", "content": "kubectl scale deployment web --replicas=3"}'
+
+# Response includes: decision, risk_score, intent_event_id, policy_event_id, violations
+```
+
+### Approval re-submit flow
+
+When an ESCALATED action is approved (via dashboard or API), the agent can re-submit the same `POST /propose` and it returns APPROVED. Approvals are:
+- **One-time-use** -- consumed on first re-submit
+- **Time-bounded** -- expires after 1 hour (configurable via `APPROVAL_TTL_SECONDS`)
+- **Actor-scoped** -- only the original actor can consume their approval
 
 ---
 
@@ -97,14 +134,12 @@ See [`governance_sdk/`](governance_sdk/) for the full client, models, and test s
 
 ## OpenClaw Integration
 
-A ready-to-use governance plugin that intercepts agent actions before execution:
+Two layers of enforcement:
 
-- **APPROVED** -- action proceeds (exit 0)
-- **DENIED** -- action blocked with violation details (exit 1)
-- **ESCALATED** -- user prompted for approval (exit 2)
-- **Error** -- fail-closed (exit 3)
+- **Plugin** (Level 2 -- mechanical) -- `before_tool_call` hook blocks every tool call until the gateway approves. The LLM cannot bypass this.
+- **Skill** (Level 0 -- prompt-based) -- SKILL.md injected into the LLM system prompt. Complementary guidance layer.
 
-See [`integrations/openclaw-plugin/README.md`](integrations/openclaw-plugin/README.md) for the plugin, and [`integrations/openclaw/README.md`](integrations/openclaw/README.md) for the prompt-based skill.
+See [`integrations/openclaw-plugin/`](integrations/openclaw-plugin/) for the plugin, and [`integrations/openclaw/`](integrations/openclaw/) for the skill.
 
 ---
 
@@ -115,8 +150,10 @@ Read-only admin UI with three views:
 | Page | Shows |
 |------|-------|
 | `/admin/events` | Full audit log with expandable JSON payloads |
-| `/admin/intents` | Inbound intents with policy decisions + approve button |
+| `/admin/intents` | Inbound intents with policy decisions + approve/deny buttons |
 | `/admin/policy` | Policy evaluations with risk scores + decision badges |
+
+ESCALATED intents show **Approve** (green) and **Deny** (red) buttons. Approved and denied states are reflected as badges. Re-submitted intents that consumed a prior approval show as APPROVED.
 
 A live integrity header calls `audit_spine_verify_chain()` on every page load. Green means the chain is intact. Red means tamper detected.
 
@@ -125,9 +162,9 @@ A live integrity header calls `audit_spine_verify_chain()` on every page load. G
 ## Project Structure
 
 ```
-constitutional-control-plane/
+gavel/
   CONSTITUTION.md          # governance invariants (the rules)
-  main.py                  # FastAPI gateway (/propose, /approve, /health)
+  main.py                  # FastAPI gateway (/propose, /approve, /deny, /health)
   governance/
     policy_engine.py       # deterministic policy evaluation
     audit.py               # append-only audit spine writer
