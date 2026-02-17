@@ -104,8 +104,15 @@ async function callGateway(
       signal: controller.signal,
     });
 
-    const data = (await resp.json()) as ProposalResponse;
-    return data;
+    // 200 = APPROVED, 403 = DENIED, 202 = ESCALATED — all return valid JSON
+    if (resp.status === 200 || resp.status === 403 || resp.status === 202) {
+      const data = (await resp.json()) as ProposalResponse;
+      return data;
+    }
+
+    // Any other status is unexpected
+    const text = await resp.text();
+    throw new Error(`Gateway returned ${resp.status}: ${text.slice(0, 100)}`);
   } finally {
     clearTimeout(timeout);
   }
@@ -126,6 +133,8 @@ export function createToolCallHook(
     try {
       response = await callGateway(config, actionType, content);
     } catch (err: unknown) {
+      const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      console.error(`[governance] Gateway call error: ${errMsg}`);
       // Gateway unreachable or timeout
       if (config.failOpen) {
         console.warn("[governance] Gateway unreachable. FAIL_OPEN=true — allowing action.");
@@ -133,7 +142,7 @@ export function createToolCallHook(
       }
       return {
         block: true,
-        blockReason: "Governance gateway unavailable. Failing closed.",
+        blockReason: `Governance gateway unavailable (${errMsg}). Failing closed.`,
       };
     }
 

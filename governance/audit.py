@@ -75,31 +75,44 @@ class AuditSpineManager:
         action_type: str,
         intent_payload: dict[str, Any],
         policy_version: str = POLICY_VERSION,
+        _max_retries: int = 3,
     ) -> str:
         """
         Write an event to the Audit Spine and return its UUID.
 
         The hash-chaining trigger in PostgreSQL handles event_hash
-        and previous_event_hash automatically.
+        and previous_event_hash automatically. Retries on
+        UniqueViolation (concurrent inserts racing for the same
+        previous_event_hash).
         """
-        conn = self._connect()
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO audit_events "
-                "(actor_id, action_type, intent_payload, policy_version) "
-                "VALUES (%s, %s, %s, %s) "
-                "RETURNING id",
-                (
-                    actor_id,
-                    action_type,
-                    json.dumps(intent_payload),
-                    policy_version,
-                ),
-            )
-            event_id = str(cur.fetchone()[0])
-            conn.commit()
-            cur.close()
-            return event_id
-        finally:
-            conn.close()
+        import time
+
+        for attempt in range(_max_retries):
+            conn = self._connect()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO audit_events "
+                    "(actor_id, action_type, intent_payload, policy_version) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "RETURNING id",
+                    (
+                        actor_id,
+                        action_type,
+                        json.dumps(intent_payload),
+                        policy_version,
+                    ),
+                )
+                event_id = str(cur.fetchone()[0])
+                conn.commit()
+                cur.close()
+                return event_id
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+                if attempt < _max_retries - 1:
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
+                raise
+            finally:
+                conn.close()
+        raise RuntimeError("log_event: exhausted retries")

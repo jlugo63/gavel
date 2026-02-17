@@ -9,6 +9,9 @@ governance_db/data/
 .env
 .env.local
 
+# Auth / credentials (OpenClaw, API keys)
+auth-profiles.json
+
 # Internal progress tracker (private)
 PROGRESS.md
 PROGRESS_THE_DREAM.md

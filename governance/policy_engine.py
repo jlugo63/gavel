@@ -113,10 +113,11 @@ def parse_constitution(path: Path) -> list[ConstitutionRule]:
 # ---------------------------------------------------------------------------
 
 # §I.2 — protected paths (governance files and constitution itself)
+# Note: use [/\\] to match both Unix and Windows path separators
 PROTECTED_PATHS = [
-    re.compile(r"(^|/)governance/", re.IGNORECASE),
-    re.compile(r"(^|/)policy/", re.IGNORECASE),
-    re.compile(r"(^|/)CONSTITUTION\.md$", re.IGNORECASE),
+    re.compile(r"(^|[/\\])governance[/\\]", re.IGNORECASE),
+    re.compile(r"(^|[/\\])policy[/\\]", re.IGNORECASE),
+    re.compile(r"(^|[/\\])CONSTITUTION\.md$", re.IGNORECASE),
 ]
 
 # §II — forbidden shell patterns
