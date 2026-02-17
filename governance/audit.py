@@ -1,0 +1,74 @@
+"""
+Audit Spine Manager
+Constitutional Reference: §I.1 — Immutable History
+
+Centralized interface for writing to the tamper-evident audit ledger.
+Every write returns the event_id so callers can reference it downstream.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import psycopg2
+
+DB_CONFIG = {
+    "host": "localhost",
+    "port": 5433,
+    "dbname": "governance_control_plane",
+    "user": "admin",
+    "password": "password123",
+}
+
+POLICY_VERSION = "1.0.0"
+
+
+class AuditSpineManager:
+    """
+    Append-only writer for the audit_events ledger.
+
+    All inserts go through this class so that every component
+    (Gateway, PolicyEngine, future services) shares one interface.
+    """
+
+    def __init__(self, db_config: dict | None = None):
+        self._db_config = db_config or DB_CONFIG
+
+    def _connect(self):
+        return psycopg2.connect(**self._db_config)
+
+    def log_event(
+        self,
+        actor_id: str,
+        action_type: str,
+        intent_payload: dict[str, Any],
+        policy_version: str = POLICY_VERSION,
+    ) -> str:
+        """
+        Write an event to the Audit Spine and return its UUID.
+
+        The hash-chaining trigger in PostgreSQL handles event_hash
+        and previous_event_hash automatically.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO audit_events "
+                "(actor_id, action_type, intent_payload, policy_version) "
+                "VALUES (%s, %s, %s, %s) "
+                "RETURNING id",
+                (
+                    actor_id,
+                    action_type,
+                    json.dumps(intent_payload),
+                    policy_version,
+                ),
+            )
+            event_id = str(cur.fetchone()[0])
+            conn.commit()
+            cur.close()
+            return event_id
+        finally:
+            conn.close()
