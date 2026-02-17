@@ -145,7 +145,7 @@ constitutional-control-plane/
 
 ## Roadmap
 
-See [PROGRESS.md](PROGRESS.md) for the full roadmap.
+See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
 **Coming next:**
 - **Phase 1.6** -- Identity model + proposal envelopes with chain IDs
