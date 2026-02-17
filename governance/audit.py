@@ -116,3 +116,65 @@ class AuditSpineManager:
             finally:
                 conn.close()
         raise RuntimeError("log_event: exhausted retries")
+
+    def find_valid_approval(
+        self,
+        actor_id: str,
+        action_type: str,
+        content: str,
+        ttl_seconds: int = 3600,
+    ) -> Optional[dict[str, Any]]:
+        """
+        Find an unconsumed, unexpired HUMAN_APPROVAL_GRANTED event that
+        matches the given (actor_id, action_type, content).
+
+        The match is performed by joining the approval event back to its
+        original INBOUND_INTENT (via intent_event_id in the approval
+        payload) and comparing the intent's actor_id, action_type, and
+        content fields.
+
+        Returns the approval event dict, or None if no valid approval
+        exists.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT a.id, a.created_at, a.actor_id, a.action_type,
+                       a.intent_payload, a.policy_version,
+                       a.event_hash, a.previous_event_hash
+                FROM audit_events a
+                JOIN audit_events intent
+                  ON intent.id = (a.intent_payload->>'intent_event_id')::uuid
+                WHERE a.action_type = 'HUMAN_APPROVAL_GRANTED'
+                  AND a.created_at >= NOW() - make_interval(secs => %s)
+                  AND intent.actor_id = %s
+                  AND intent.intent_payload->>'action_type' = %s
+                  AND intent.intent_payload->>'content' = %s
+                  AND NOT EXISTS (
+                      SELECT 1 FROM audit_events c
+                      WHERE c.action_type = 'APPROVAL_CONSUMED'
+                        AND c.intent_payload->>'approval_event_id' = a.id::text
+                  )
+                ORDER BY a.created_at DESC
+                LIMIT 1
+                """,
+                (ttl_seconds, actor_id, action_type, content),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row is None:
+                return None
+            return {
+                "id": str(row[0]),
+                "created_at": row[1],
+                "actor_id": row[2],
+                "action_type": row[3],
+                "intent_payload": row[4],
+                "policy_version": row[5],
+                "event_hash": row[6],
+                "previous_event_hash": row[7],
+            }
+        finally:
+            conn.close()

@@ -19,9 +19,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from governance.audit import AuditSpineManager
-from governance.policy_engine import Decision, PolicyEngine
+from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
 HUMAN_API_KEY = os.environ.get("HUMAN_API_KEY", "")
+APPROVAL_TTL_SECONDS = int(os.environ.get("APPROVAL_TTL_SECONDS", "3600"))
 
 # ---------------------------------------------------------------------------
 # App + shared services
@@ -50,6 +51,7 @@ class ProposalResponse(BaseModel):
     intent_event_id: str
     policy_event_id: str
     violations: list[dict[str, str]]
+    approval_consumed_event_id: str | None = None
 
 
 class ApprovalRequest(BaseModel):
@@ -95,8 +97,7 @@ def propose(proposal: Proposal):
         action_type="INBOUND_INTENT",
         intent_payload={
             "action_type": proposal.action_type,
-            "content": proposal.content if isinstance(proposal.content, str)
-                       else proposal.content,
+            "content": content_str,
         },
     )
 
@@ -108,12 +109,50 @@ def propose(proposal: Proposal):
         for v in result.violations
     ]
 
+    # --- Step 2b: Check for prior human approval if ESCALATED ---
+    approval_consumed_event_id = None
+    if result.decision == Decision.ESCALATED:
+        prior_approval = audit.find_valid_approval(
+            actor_id=proposal.actor_id,
+            action_type=proposal.action_type,
+            content=content_str,
+            ttl_seconds=APPROVAL_TTL_SECONDS,
+        )
+        if prior_approval is not None:
+            # Parse the original approval payload to get the intent linkage
+            approval_payload = prior_approval["intent_payload"]
+            if isinstance(approval_payload, str):
+                import json
+                approval_payload = json.loads(approval_payload)
+
+            # Log APPROVAL_CONSUMED to the audit spine
+            approval_consumed_event_id = audit.log_event(
+                actor_id=proposal.actor_id,
+                action_type="APPROVAL_CONSUMED",
+                intent_payload={
+                    "approval_event_id": prior_approval["id"],
+                    "original_intent_id": approval_payload.get("intent_event_id", ""),
+                    "current_intent_event_id": intent_event_id,
+                    "current_policy_event_id": policy_event_id,
+                    "consumed_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            # Override the decision to APPROVED
+            result = PolicyResult(
+                decision=Decision.APPROVED,
+                risk_score=result.risk_score,
+                violations=result.violations,
+                proposal=result.proposal,
+            )
+
     response_body = ProposalResponse(
         decision=result.decision.value,
         risk_score=result.risk_score,
         intent_event_id=intent_event_id,
         policy_event_id=policy_event_id,
         violations=violations,
+        approval_consumed_event_id=approval_consumed_event_id,
     )
 
     # --- Step 3: Return decision with appropriate HTTP status ---
