@@ -1,4 +1,4 @@
-# Constitutional Governance Plugin for OpenClaw
+# Gavel Governance Plugin for OpenClaw
 
 Mechanical enforcement of AI governance policy. This is NOT a prompt-based
 skill the LLM can ignore -- it's a `before_tool_call` hook that intercepts
@@ -8,7 +8,7 @@ every tool call and requires gateway approval before execution.
 
 The plugin registers a `before_tool_call` hook with OpenClaw. Every time the
 agent tries to use a tool (bash, file write, web fetch, etc.), the hook fires
-first and POSTs to the governance gateway. The agent cannot execute without
+first and POSTs to the Gavel governance gateway. The agent cannot execute without
 approval.
 
 - **APPROVED** -- tool call proceeds
@@ -26,7 +26,7 @@ npm install && npm run build
 Then register with OpenClaw (copy or symlink into your plugins directory):
 
 ```bash
-cp -r integrations/openclaw-plugin/ ~/.openclaw/plugins/constitutional-governance/
+cp -r integrations/openclaw-plugin/ ~/.openclaw/plugins/gavel-governance/
 ```
 
 ## Configure
@@ -35,7 +35,7 @@ Set environment variables (or add to `openclaw.json` under plugin config):
 
 | Variable | Default | Description |
 |---|---|---|
-| `GOVERNANCE_GATEWAY_URL` | `http://localhost:8000` | Governance gateway URL |
+| `GOVERNANCE_GATEWAY_URL` | `http://localhost:8000` | Gavel governance gateway URL |
 | `GOVERNANCE_ACTOR_ID` | `agent:openclaw` | Actor identity for audit trail |
 | `HUMAN_API_KEY` | *(none)* | Bearer token for approval endpoint |
 | `GOVERNANCE_FAIL_OPEN` | `false` | Allow actions when gateway is down |
@@ -61,7 +61,7 @@ OpenClaw before_tool_call hook
     |
     |  POST /propose
     v
-Governance Gateway
+Gavel Governance Gateway
     |
     v
 APPROVED → tool executes
@@ -72,5 +72,5 @@ Error    → tool blocked (fail closed)
 
 ## Links
 
-- [Constitutional Control Plane](https://github.com/jlugo63/constitutional-control-plane)
+- [Gavel](https://github.com/jlugo63/constitutional-control-plane)
 - [ClawBands](https://github.com/SeyZ/clawbands) -- reference implementation for the hook pattern

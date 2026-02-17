@@ -1,15 +1,14 @@
-# OpenClaw Governance Skill
+# Gavel Governance Skill for OpenClaw
 
 A prompt-based skill that connects [OpenClaw](https://github.com/openclaw) to
-the Constitutional AI Governance Gateway, enforcing policy-as-code on every
-agent action.
+the Gavel governance gateway, enforcing policy-as-code on every agent action.
 
 ## How It Works
 
 OpenClaw skills are natural language instructions injected into the agent's
-system prompt. This skill instructs the agent to call your governance gateway
-via `curl` before executing any shell command, file modification, or external
-API call. The agent reads the gateway's response and acts accordingly:
+system prompt. This skill instructs the agent to call the Gavel governance
+gateway via `curl` before executing any shell command, file modification, or
+external API call. The agent reads the gateway's response and acts accordingly:
 
 - **APPROVED** -- action proceeds
 - **DENIED** -- action blocked, violations reported to user
@@ -31,7 +30,7 @@ HUMAN_API_KEY=your-secret-key uvicorn main:app --port 8000
 Copy the skill into your OpenClaw skills folder:
 
 ```bash
-cp -r integrations/openclaw/ ~/.openclaw/skills/governance-check/
+cp -r integrations/openclaw/ ~/.openclaw/skills/gavel-governance/
 ```
 
 ### 3. Configure Environment
@@ -51,7 +50,7 @@ Start an OpenClaw session and try a dangerous command:
 > run sudo rm -rf /tmp/test
 ```
 
-The agent should call your gateway first, receive a DENIED decision, and
+The agent should call the gateway first, receive a DENIED decision, and
 refuse to execute -- reporting the constitutional violations to you.
 
 ## Architecture
@@ -65,7 +64,7 @@ OpenClaw Agent (LLM)
     |  reads SKILL.md instructions
     |  calls curl POST /propose
     v
-Governance Gateway
+Gavel Governance Gateway
     |
     v
 APPROVED / DENIED / ESCALATED

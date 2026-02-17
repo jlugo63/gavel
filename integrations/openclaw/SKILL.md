@@ -1,12 +1,12 @@
 ---
-name: governance-check
-description: Submit proposed actions to a governance gateway for policy evaluation before executing shell commands, file modifications, or external API calls.
+name: gavel-governance
+description: Submit proposed actions to the Gavel governance gateway for policy evaluation before executing shell commands, file modifications, or external API calls.
 metadata: {"openclaw":{"requires":{"env":["GOVERNANCE_GATEWAY_URL","HUMAN_API_KEY"]},"primaryEnv":"HUMAN_API_KEY"}}
 ---
 
-## Governance Check
+## Gavel Governance Check
 
-You are operating under a **Constitutional AI Governance Policy**. Before executing any action that modifies the system, you MUST submit it to the governance gateway for approval.
+You are operating under a **governance policy**. Before executing any action that modifies the system, you MUST submit it to the Gavel governance gateway for approval.
 
 ### Actions that require governance approval
 

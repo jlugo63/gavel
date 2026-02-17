@@ -1,9 +1,9 @@
 /**
- * Constitutional Governance Plugin — Entry Point
+ * Gavel Governance Plugin — Entry Point
  *
  * Registers a before_tool_call hook that submits every agent action
- * to the governance gateway for policy evaluation. The agent cannot
- * execute without gateway approval.
+ * to the Gavel governance gateway for policy evaluation. The agent
+ * cannot execute without gateway approval.
  *
  * IMPORTANT: register() must be SYNCHRONOUS — OpenClaw does not
  * await async plugin registration.
@@ -21,13 +21,13 @@ function tryOn(
 ): boolean {
   try {
     if (!api.on) {
-      console.warn(`[governance] ${label}: api.on not available`);
+      console.warn(`[gavel] ${label}: api.on not available`);
       return false;
     }
     api.on(hookName, handler);
     return true;
   } catch (err) {
-    console.warn(`[governance] ${label}: api.on('${hookName}') threw`, err);
+    console.warn(`[gavel] ${label}: api.on('${hookName}') threw`, err);
     return false;
   }
 }
@@ -40,23 +40,23 @@ async function checkHealth(gatewayUrl: string): Promise<void> {
     clearTimeout(timeout);
 
     if (resp.ok) {
-      console.log(`[governance] Gateway health check passed.`);
+      console.log(`[gavel] Gateway health check passed.`);
     } else {
-      console.warn(`[governance] Gateway returned ${resp.status}. Hook will fail closed on calls.`);
+      console.warn(`[gavel] Gateway returned ${resp.status}. Hook will fail closed on calls.`);
     }
   } catch {
-    console.warn(`[governance] Gateway unreachable at ${gatewayUrl}. Hook will fail closed on calls.`);
+    console.warn(`[gavel] Gateway unreachable at ${gatewayUrl}. Hook will fail closed on calls.`);
   }
 }
 
 export default {
-  id: "constitutional-governance",
-  name: "Constitutional Governance",
+  id: "gavel-governance",
+  name: "Gavel Governance",
 
   register(api: OpenClawPluginApi): void {
     const config = loadConfig();
 
-    console.log(`[governance] Constitutional Governance Plugin active — gateway: ${config.gatewayUrl}`);
+    console.log(`[gavel] Gavel Governance Plugin active — gateway: ${config.gatewayUrl}`);
 
     // Register the before_tool_call hook
     const toolHook = createToolCallHook(config);
@@ -68,9 +68,9 @@ export default {
     );
 
     if (registered) {
-      console.log("[governance] before_tool_call hook registered. All tool calls require gateway approval.");
+      console.log("[gavel] before_tool_call hook registered. All tool calls require gateway approval.");
     } else {
-      console.error("[governance] FAILED to register before_tool_call hook. Plugin is NOT enforcing governance.");
+      console.error("[gavel] FAILED to register before_tool_call hook. Plugin is NOT enforcing governance.");
     }
 
     // Fire-and-forget health check (register is synchronous, health check is async)

@@ -1,6 +1,6 @@
 """
 Governance SDK — Client
-Thin synchronous wrapper over the Constitutional AI Governance Gateway.
+Thin synchronous wrapper over the Gavel governance gateway.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from governance_sdk.models import ApprovalResult, ProposalResult
 
 class GovernanceClient:
     """
-    Client for the Constitutional AI Governance Gateway.
+    Client for the Gavel governance gateway.
 
     Submits proposals for policy evaluation, retrieves decisions,
     and optionally approves escalated proposals with a human API key.

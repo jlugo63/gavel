@@ -1,7 +1,7 @@
 {
-  "name": "@constitutional/openclaw-governance",
+  "name": "@gavel/openclaw-governance",
   "version": "1.0.0",
-  "description": "Constitutional AI governance plugin for OpenClaw — mechanical enforcement via before_tool_call hook",
+  "description": "Gavel governance plugin for OpenClaw — mechanical enforcement via before_tool_call hook",
   "main": "dist/plugin/index.js",
   "types": "dist/plugin/index.d.ts",
   "scripts": {
@@ -10,13 +10,13 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
+    "gavel",
     "governance",
     "ai-agents",
     "openclaw",
     "security",
     "policy-enforcement",
-    "audit",
-    "constitutional"
+    "audit"
   ],
   "license": "Apache-2.0",
   "repository": {

@@ -1,4 +1,4 @@
-# Constitutional Control Plane
+# Gavel
 
 **Governance runtime for AI agents.** Tamper-proof audit trail, deterministic policy enforcement, human escalation. Open source.
 
@@ -17,7 +17,7 @@ AI agents execute shell commands, send emails, deploy code, and install plugins 
 - **Human approval flow** for high-risk actions (`POST /approve` with Bearer auth)
 - **Read-only governance dashboard** with live chain integrity verification
 - **Python SDK** for any agent framework
-- **OpenClaw governance skill** included
+- **OpenClaw governance plugin** included
 
 ---
 
@@ -97,14 +97,14 @@ See [`governance_sdk/`](governance_sdk/) for the full client, models, and test s
 
 ## OpenClaw Integration
 
-A ready-to-use governance skill that intercepts agent actions before execution:
+A ready-to-use governance plugin that intercepts agent actions before execution:
 
 - **APPROVED** -- action proceeds (exit 0)
 - **DENIED** -- action blocked with violation details (exit 1)
 - **ESCALATED** -- user prompted for approval (exit 2)
 - **Error** -- fail-closed (exit 3)
 
-See [`integrations/openclaw/README.md`](integrations/openclaw/README.md) for setup.
+See [`integrations/openclaw-plugin/README.md`](integrations/openclaw-plugin/README.md) for the plugin, and [`integrations/openclaw/README.md`](integrations/openclaw/README.md) for the prompt-based skill.
 
 ---
 
@@ -135,7 +135,8 @@ constitutional-control-plane/
     client.py              # GovernanceClient
     models.py              # ProposalResult, ApprovalResult
     test_sdk.py            # 12 tests
-  integrations/openclaw/   # OpenClaw governance skill
+  integrations/openclaw-plugin/  # OpenClaw governance plugin (before_tool_call hook)
+  integrations/openclaw/         # OpenClaw governance skill (prompt-based)
   governance_db/migrations # PostgreSQL schema + hash-chain triggers
   ui/                      # Next.js governance dashboard
   docker-compose.yml       # PostgreSQL 16

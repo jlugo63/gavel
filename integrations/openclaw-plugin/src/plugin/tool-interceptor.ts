@@ -134,10 +134,10 @@ export function createToolCallHook(
       response = await callGateway(config, actionType, content);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      console.error(`[governance] Gateway call error: ${errMsg}`);
+      console.error(`[gavel] Gateway call error: ${errMsg}`);
       // Gateway unreachable or timeout
       if (config.failOpen) {
-        console.warn("[governance] Gateway unreachable. FAIL_OPEN=true — allowing action.");
+        console.warn("[gavel] Gateway unreachable. FAIL_OPEN=true — allowing action.");
         return {};
       }
       return {

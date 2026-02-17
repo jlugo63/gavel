@@ -1,6 +1,6 @@
 {
-  "id": "constitutional-governance",
-  "name": "Constitutional Governance",
+  "id": "gavel-governance",
+  "name": "Gavel Governance",
   "description": "Mechanical enforcement of AI governance policy. Intercepts every tool call via before_tool_call hook and requires gateway approval before execution.",
   "version": "1.0.0",
   "main": "dist/plugin/index.js",
@@ -12,7 +12,7 @@
       "gatewayUrl": {
         "type": "string",
         "default": "http://localhost:8000",
-        "description": "URL of the Constitutional Governance Gateway"
+        "description": "URL of the Gavel governance gateway"
       },
       "failOpen": {
         "type": "boolean",
