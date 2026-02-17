@@ -10,14 +10,18 @@ of what was attempted regardless of the outcome.
 
 from __future__ import annotations
 
+import os
+from datetime import datetime, timezone
 from typing import Any, Union
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from governance.audit import AuditSpineManager
 from governance.policy_engine import Decision, PolicyEngine
+
+HUMAN_API_KEY = os.environ.get("HUMAN_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # App + shared services
@@ -46,6 +50,11 @@ class ProposalResponse(BaseModel):
     intent_event_id: str
     policy_event_id: str
     violations: list[dict[str, str]]
+
+
+class ApprovalRequest(BaseModel):
+    intent_event_id: str
+    policy_event_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -132,5 +141,106 @@ def propose(proposal: Proposal):
         content={
             **response_body.model_dump(),
             "message": "Proposal approved. Cleared for execution.",
+        },
+    )
+
+
+@app.post("/approve")
+def approve(
+    request: ApprovalRequest,
+    authorization: str = Header(...),
+):
+    """
+    Human approval for an ESCALATED proposal.
+    Constitutional Reference: §I.3 — Tiered Autonomy.
+
+    Flow:
+      1. Authenticate the human via Bearer token.
+      2. Validate that the referenced events exist and are ESCALATED.
+      3. Log HUMAN_APPROVAL_GRANTED to the Audit Spine.
+    """
+
+    # --- Step 1: Authenticate ---
+    if not HUMAN_API_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="HUMAN_API_KEY environment variable is not configured.",
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token.")
+
+    token = authorization[len("Bearer "):]
+    if token != HUMAN_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key.")
+
+    # --- Step 2: Validate referenced events ---
+    intent_event = audit.get_event(request.intent_event_id)
+    if intent_event is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Intent event {request.intent_event_id} not found.",
+        )
+    if intent_event["action_type"] != "INBOUND_INTENT":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Event {request.intent_event_id} is not an INBOUND_INTENT "
+                   f"(got '{intent_event['action_type']}').",
+        )
+
+    policy_event = audit.get_event(request.policy_event_id)
+    if policy_event is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Policy event {request.policy_event_id} not found.",
+        )
+    if not policy_event["action_type"].startswith("POLICY_EVAL:"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Event {request.policy_event_id} is not a POLICY_EVAL "
+                   f"(got '{policy_event['action_type']}').",
+        )
+
+    # Verify the policy decision was ESCALATED
+    policy_payload = policy_event["intent_payload"]
+    if isinstance(policy_payload, str):
+        import json
+        policy_payload = json.loads(policy_payload)
+
+    if policy_payload.get("decision") != "ESCALATED":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Policy decision is '{policy_payload.get('decision')}', "
+                   f"not ESCALATED. Only ESCALATED proposals can be approved.",
+        )
+
+    # Sanity check: actor_id should match between intent and policy events
+    if intent_event["actor_id"] != policy_event["actor_id"]:
+        raise HTTPException(
+            status_code=422,
+            detail="Actor mismatch between intent and policy events.",
+        )
+
+    # --- Step 3: Log approval to Audit Spine ---
+    approval_event_id = audit.log_event(
+        actor_id="human:admin",
+        action_type="HUMAN_APPROVAL_GRANTED",
+        intent_payload={
+            "intent_event_id": request.intent_event_id,
+            "policy_event_id": request.policy_event_id,
+            "approved_scope": "allow_execute_once",
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "approval_event_id": approval_event_id,
+            "intent_event_id": request.intent_event_id,
+            "policy_event_id": request.policy_event_id,
+            "status": "HUMAN_APPROVAL_GRANTED",
+            "scope": "allow_execute_once",
+            "message": "Proposal approved by human operator.",
         },
     )

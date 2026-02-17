@@ -87,6 +87,7 @@ export async function getIntentsWithPolicyEvals(
     policy_decision: string | null;
     policy_risk_score: number | null;
     policy_event_id: string | null;
+    is_approved: boolean;
   })[];
   total: number;
 }> {
@@ -97,14 +98,15 @@ export async function getIntentsWithPolicyEvals(
   );
 
   // For each INBOUND_INTENT, find the closest subsequent POLICY_EVAL
-  // for the same actor_id within 10 seconds.
+  // for the same actor_id within 10 seconds, and check for HUMAN_APPROVAL_GRANTED.
   const dataResult = await pool.query(
     `SELECT
        i.id, i.created_at, i.actor_id, i.action_type,
        i.intent_payload, i.policy_version, i.event_hash, i.previous_event_hash,
        p.intent_payload->>'decision'   AS policy_decision,
        (p.intent_payload->>'risk_score')::float AS policy_risk_score,
-       p.id::text                      AS policy_event_id
+       p.id::text                      AS policy_event_id,
+       (a.id IS NOT NULL)              AS is_approved
      FROM audit_events i
      LEFT JOIN LATERAL (
        SELECT pe.id, pe.intent_payload
@@ -116,6 +118,13 @@ export async function getIntentsWithPolicyEvals(
        ORDER BY pe.created_at ASC
        LIMIT 1
      ) p ON true
+     LEFT JOIN LATERAL (
+       SELECT ae.id
+       FROM audit_events ae
+       WHERE ae.action_type = 'HUMAN_APPROVAL_GRANTED'
+         AND ae.intent_payload->>'intent_event_id' = i.id::text
+       LIMIT 1
+     ) a ON true
      WHERE i.action_type = 'INBOUND_INTENT'
      ORDER BY i.created_at DESC, i.id DESC
      LIMIT $1 OFFSET $2`,
@@ -129,6 +138,7 @@ export async function getIntentsWithPolicyEvals(
       policy_decision: (r.policy_decision as string) ?? null,
       policy_risk_score: r.policy_risk_score != null ? Number(r.policy_risk_score) : null,
       policy_event_id: (r.policy_event_id as string) ?? null,
+      is_approved: Boolean(r.is_approved),
     })),
   };
 }

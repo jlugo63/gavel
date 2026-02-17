@@ -9,7 +9,7 @@ Every write returns the event_id so callers can reference it downstream.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 import psycopg2
 
@@ -37,6 +37,37 @@ class AuditSpineManager:
 
     def _connect(self):
         return psycopg2.connect(**self._db_config)
+
+    def get_event(self, event_id: str) -> Optional[dict[str, Any]]:
+        """
+        Fetch a single audit event by ID. SELECT-only.
+        Returns None if the event does not exist.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, created_at, actor_id, action_type, "
+                "intent_payload, policy_version, event_hash, previous_event_hash "
+                "FROM audit_events WHERE id = %s",
+                (event_id,),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row is None:
+                return None
+            return {
+                "id": str(row[0]),
+                "created_at": row[1],
+                "actor_id": row[2],
+                "action_type": row[3],
+                "intent_payload": row[4],
+                "policy_version": row[5],
+                "event_hash": row[6],
+                "previous_event_hash": row[7],
+            }
+        finally:
+            conn.close()
 
     def log_event(
         self,
