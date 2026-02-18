@@ -43,6 +43,9 @@ class PolicyResult:
     risk_score: float                       # 0.0 (safe) to 1.0 (critical)
     violations: list[Violation] = field(default_factory=list)
     proposal: Optional[dict] = None
+    rationale: list[str] = field(default_factory=list)
+    matched_rules: list[str] = field(default_factory=list)
+    signals: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -57,6 +60,14 @@ class PolicyResult:
             lines.append("Violations:")
             for v in self.violations:
                 lines.append(f"  [{v.rule}] {v.description}")
+        if self.rationale:
+            lines.append("Rationale:")
+            for r in self.rationale:
+                lines.append(f"  - {r}")
+        if self.matched_rules:
+            lines.append(f"Matched Rules: {', '.join(self.matched_rules)}")
+        if self.signals:
+            lines.append(f"Signals: {', '.join(self.signals)}")
         return "\n".join(lines)
 
 
@@ -261,27 +272,66 @@ class PolicyEngine:
             (PolicyResult, event_id) — the result and its Audit Spine UUID.
         """
         violations: list[Violation] = []
+        rationale: list[str] = []
+        matched_rules: list[str] = []
+        signals: list[str] = []
 
-        # Run all hard-coded checks
-        violations.extend(_check_authority_decoupling(proposal))
-        violations.extend(_check_operational_constraints(proposal))
-        violations.extend(_check_unproxied_api_calls(proposal))
+        # Run all hard-coded checks and collect structured output
+        auth_violations = _check_authority_decoupling(proposal)
+        for v in auth_violations:
+            target = proposal.get("target_path", proposal.get("content", ""))
+            signals.append("protected_path_write")
+            matched_rules.append("§I.2")
+            rationale.append(
+                f"Action targets protected governance path: {target}"
+            )
+        violations.extend(auth_violations)
+
+        ops_violations = _check_operational_constraints(proposal)
+        for v in ops_violations:
+            signals.append("destructive_command")
+            matched_rules.append("§II")
+            rationale.append(f"Forbidden command detected: {v.description}")
+        violations.extend(ops_violations)
+
+        proxy_violations = _check_unproxied_api_calls(proposal)
+        for v in proxy_violations:
+            signals.append("external_network_access")
+            matched_rules.append("§II")
+            rationale.append(
+                "External network access must use governance gateway"
+            )
+        violations.extend(proxy_violations)
 
         risk_score = _compute_risk_score(violations)
 
         # Decision logic
         if not violations:
             decision = Decision.APPROVED
+            signals.append("standard_operation")
+            rationale.append("No policy violations detected")
         elif risk_score >= 0.8:
             decision = Decision.DENIED
         else:
             decision = Decision.ESCALATED
+
+        # De-duplicate matched_rules while preserving order
+        seen: set[str] = set()
+        unique_rules: list[str] = []
+        for rule in matched_rules:
+            if rule not in seen:
+                seen.add(rule)
+                unique_rules.append(rule)
+        matched_rules = unique_rules
 
         result = PolicyResult(
             decision=decision,
             risk_score=risk_score,
             violations=violations,
             proposal=proposal,
+            rationale=rationale,
+            matched_rules=matched_rules,
+            signals=signals,
         )
 
         # Log to Audit Spine — every evaluation, pass or fail
@@ -295,6 +345,9 @@ class PolicyEngine:
                     {"rule": v.rule, "description": v.description}
                     for v in result.violations
                 ],
+                "rationale": result.rationale,
+                "matched_rules": result.matched_rules,
+                "signals": result.signals,
                 "proposal": result.proposal,
             },
         )

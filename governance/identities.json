@@ -1,0 +1,10 @@
+{
+  "actors": {
+    "agent:architect": { "role": "architect", "status": "active", "key_fingerprint": null },
+    "agent:coder": { "role": "coder", "status": "active", "key_fingerprint": null },
+    "agent:reviewer": { "role": "reviewer", "status": "active", "key_fingerprint": null },
+    "agent:risk": { "role": "risk", "status": "active", "key_fingerprint": null },
+    "human:admin": { "role": "admin", "status": "active", "key_fingerprint": null },
+    "system:gateway": { "role": "system", "status": "active", "key_fingerprint": null }
+  }
+}

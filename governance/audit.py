@@ -117,6 +117,39 @@ class AuditSpineManager:
                 conn.close()
         raise RuntimeError("log_event: exhausted retries")
 
+    def get_chain_role(
+        self,
+        chain_id: str,
+        actor_id: str,
+    ) -> Optional[str]:
+        """
+        Look up the role used by an actor on a given chain.
+
+        Queries INBOUND_INTENT events for the first occurrence of this
+        actor + chain_id combination and returns the role from the payload.
+        Returns None if no prior events exist for this actor on this chain.
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT intent_payload->>'role'
+                FROM audit_events
+                WHERE action_type = 'INBOUND_INTENT'
+                  AND actor_id = %s
+                  AND intent_payload->>'chain_id' = %s
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (actor_id, chain_id),
+            )
+            row = cur.fetchone()
+            cur.close()
+            return row[0] if row else None
+        finally:
+            conn.close()
+
     def find_valid_approval(
         self,
         actor_id: str,

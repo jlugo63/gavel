@@ -15,3 +15,7 @@ auth-profiles.json
 # Internal progress tracker (private)
 PROGRESS.md
 PROGRESS_THE_DREAM.md
+
+# Claude Code local config
+.claude/settings.local.json
+.mcp.json

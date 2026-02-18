@@ -13,12 +13,14 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from typing import Any, Union
+from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from governance.audit import AuditSpineManager
+from governance.identity import validate_actor
 from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
 HUMAN_API_KEY = os.environ.get("HUMAN_API_KEY", "")
@@ -40,17 +42,44 @@ engine = PolicyEngine(audit=audit)
 # ---------------------------------------------------------------------------
 
 class Proposal(BaseModel):
+    """Legacy proposal format (kept for backward compatibility)."""
     actor_id: str
     action_type: str
     content: Union[str, dict[str, Any]]
 
 
+class Scope(BaseModel):
+    allow_paths: list[str] = []
+    allow_commands: list[str] = []
+    allow_network: bool = False
+
+
+class Action(BaseModel):
+    action_type: str
+    content: Union[str, dict[str, Any]] = ""
+
+
+class ProposalEnvelope(BaseModel):
+    actor_id: str
+    role: str = "unknown"
+    tier_request: int = 0
+    goal: str = ""
+    scope: Scope = Scope()
+    expected_outcomes: list[str] = []
+    action: Action
+    chain_id: str | None = None  # provide to continue an existing chain
+
+
 class ProposalResponse(BaseModel):
+    chain_id: str
     decision: str
     risk_score: float
     intent_event_id: str
     policy_event_id: str
     violations: list[dict[str, str]]
+    rationale: list[str] = []
+    matched_rules: list[str] = []
+    signals: list[str] = []
     approval_consumed_event_id: str | None = None
 
 
@@ -74,35 +103,103 @@ def health():
     return {"status": "operational", "service": "governance-gateway"}
 
 
+def _parse_proposal(body: dict[str, Any]) -> ProposalEnvelope:
+    """Convert raw JSON body to ProposalEnvelope.
+
+    Detects legacy format (top-level action_type, no nested action field)
+    and converts it to the envelope format automatically.
+    """
+    if "action" not in body and "action_type" in body:
+        # Legacy Proposal format -> convert to envelope
+        return ProposalEnvelope(
+            actor_id=body["actor_id"],
+            role=body.get("role", "unknown"),
+            tier_request=body.get("tier_request", 0),
+            goal=body.get("goal", ""),
+            scope=Scope(**body["scope"]) if "scope" in body else Scope(),
+            expected_outcomes=body.get("expected_outcomes", []),
+            action=Action(
+                action_type=body["action_type"],
+                content=body.get("content", ""),
+            ),
+        )
+    # New envelope format
+    return ProposalEnvelope(**body)
+
+
 @app.post("/propose")
-def propose(proposal: Proposal):
+async def propose(request: Request):
     """
     Submit a proposed action for constitutional review.
+
+    Accepts both legacy Proposal format and new ProposalEnvelope format.
 
     Flow:
       1. Log the raw inbound intent to the Audit Spine (pre-evaluation).
       2. Run the PolicyEngine against all constitutional invariants.
       3. Return the decision with appropriate HTTP status.
     """
+    body = await request.json()
+    envelope = _parse_proposal(body)
+
+    # --- Step 0: Identity validation — reject unknown actors BEFORE audit ---
+    try:
+        identity = validate_actor(envelope.actor_id)
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=403,
+            content={"error": str(exc), "actor_id": envelope.actor_id},
+        )
+
+    # Fill role from identity if not provided in envelope
+    if envelope.role == "unknown":
+        envelope = envelope.model_copy(update={"role": identity.role})
+
+    # Use provided chain_id (continuing a chain) or generate a new one
+    chain_id = envelope.chain_id or str(uuid4())
+
+    # --- Step 0b: Role-lock — actor cannot switch roles mid-chain ---
+    if envelope.chain_id is not None:
+        prior_role = audit.get_chain_role(chain_id, envelope.actor_id)
+        if prior_role is not None and prior_role != envelope.role:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": (
+                        f"Role-lock violation: actor {envelope.actor_id} used "
+                        f"role '{prior_role}' on chain {chain_id}, cannot "
+                        f"switch to '{envelope.role}'"
+                    ),
+                    "chain_id": chain_id,
+                    "prior_role": prior_role,
+                    "requested_role": envelope.role,
+                },
+            )
 
     # Normalise content to string for the policy engine
     content_str = (
-        proposal.content if isinstance(proposal.content, str)
-        else str(proposal.content)
+        envelope.action.content if isinstance(envelope.action.content, str)
+        else str(envelope.action.content)
     )
 
     proposal_dict = {
-        "actor_id": proposal.actor_id,
-        "action_type": proposal.action_type,
+        "actor_id": envelope.actor_id,
+        "action_type": envelope.action.action_type,
         "content": content_str,
     }
 
     # --- Step 1: Log raw inbound intent BEFORE evaluation ---
     intent_event_id = audit.log_event(
-        actor_id=proposal.actor_id,
+        actor_id=envelope.actor_id,
         action_type="INBOUND_INTENT",
         intent_payload={
-            "action_type": proposal.action_type,
+            "chain_id": chain_id,
+            "role": envelope.role,
+            "tier_request": envelope.tier_request,
+            "goal": envelope.goal,
+            "scope": envelope.scope.model_dump(),
+            "expected_outcomes": envelope.expected_outcomes,
+            "action_type": envelope.action.action_type,
             "content": content_str,
         },
     )
@@ -119,8 +216,8 @@ def propose(proposal: Proposal):
     approval_consumed_event_id = None
     if result.decision == Decision.ESCALATED:
         prior_approval = audit.find_valid_approval(
-            actor_id=proposal.actor_id,
-            action_type=proposal.action_type,
+            actor_id=envelope.actor_id,
+            action_type=envelope.action.action_type,
             content=content_str,
             ttl_seconds=APPROVAL_TTL_SECONDS,
         )
@@ -133,7 +230,7 @@ def propose(proposal: Proposal):
 
             # Log APPROVAL_CONSUMED to the audit spine
             approval_consumed_event_id = audit.log_event(
-                actor_id=proposal.actor_id,
+                actor_id=envelope.actor_id,
                 action_type="APPROVAL_CONSUMED",
                 intent_payload={
                     "approval_event_id": prior_approval["id"],
@@ -150,14 +247,21 @@ def propose(proposal: Proposal):
                 risk_score=result.risk_score,
                 violations=result.violations,
                 proposal=result.proposal,
+                rationale=result.rationale,
+                matched_rules=result.matched_rules,
+                signals=result.signals,
             )
 
     response_body = ProposalResponse(
+        chain_id=chain_id,
         decision=result.decision.value,
         risk_score=result.risk_score,
         intent_event_id=intent_event_id,
         policy_event_id=policy_event_id,
         violations=violations,
+        rationale=result.rationale,
+        matched_rules=result.matched_rules,
+        signals=result.signals,
         approval_consumed_event_id=approval_consumed_event_id,
     )
 
