@@ -1,4 +1,4 @@
-# AI Governance Control Plane Constitution
+# Gavel Constitution
 Version: 1.0.0 (Foundation Sprint)
 
 ## I. Governance Invariants

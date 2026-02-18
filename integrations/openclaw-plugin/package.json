@@ -21,7 +21,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jlugo63/constitutional-control-plane.git",
+    "url": "https://github.com/jlugo63/gavel.git",
     "directory": "integrations/openclaw-plugin"
   },
   "files": [

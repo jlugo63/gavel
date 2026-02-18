@@ -72,5 +72,5 @@ Error    → tool blocked (fail closed)
 
 ## Links
 
-- [Gavel](https://github.com/jlugo63/constitutional-control-plane)
+- [Gavel](https://github.com/jlugo63/gavel)
 - [ClawBands](https://github.com/SeyZ/clawbands) -- reference implementation for the hook pattern

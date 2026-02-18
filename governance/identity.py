@@ -2,7 +2,7 @@
 Identity Validation Module
 Constitutional Reference: §I.2 — Authority Decoupling
 
-Actor allowlist and validation for the governance control plane.
+Actor allowlist and validation for Gavel.
 The identities.json file is protected by the §I.2 check in policy_engine.py
 (governance/ path protection).
 """

@@ -19,7 +19,7 @@ export function AdminNav() {
           href="/admin/events"
           className="font-mono text-sm font-bold tracking-wider text-zinc-300"
         >
-          GOVERNANCE CONTROL PLANE
+          GAVEL
         </Link>
         <div className="flex gap-1">
           {links.map((link) => (

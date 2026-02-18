@@ -30,7 +30,7 @@ APPROVAL_TTL_SECONDS = int(os.environ.get("APPROVAL_TTL_SECONDS", "3600"))
 # App + shared services
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="Constitutional AI Governance Gateway",
+    title="Gavel Governance Gateway",
     version="1.0.0",
 )
 
