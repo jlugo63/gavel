@@ -50,6 +50,8 @@ class BlastBoxResult:
     })
     timed_out: bool = False
     oom_killed: bool = False
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +201,8 @@ def run_in_blastbox(
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     # -- Truncate output --------------------------------------------------
+    stdout_truncated = len(stdout_raw) > _MAX_OUTPUT_BYTES
+    stderr_truncated = len(stderr_raw) > _MAX_OUTPUT_BYTES
     stdout = stdout_raw[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
     stderr = stderr_raw[:_MAX_OUTPUT_BYTES].decode("utf-8", errors="replace")
 
@@ -245,4 +249,6 @@ def run_in_blastbox(
         workspace_diff=workspace_diff,
         timed_out=timed_out,
         oom_killed=oom_killed,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
     )

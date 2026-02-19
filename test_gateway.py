@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from uuid import uuid4
 
 import httpx
 
@@ -257,7 +258,7 @@ def main():
         {
             "actor_id": "agent:coder",
             "action_type": "bash",
-            "content": "curl https://api.example.com/data",
+            "content": f"curl https://api.example.com/escalation-test-{uuid4().hex[:8]}",
         },
         expected_status=202,
         expected_decision="ESCALATED",
