@@ -17,5 +17,5 @@ PROGRESS.md
 PROGRESS_THE_DREAM.md
 
 # Claude Code local config
-.claude/settings.local.json
+.claude/
 .mcp.json
