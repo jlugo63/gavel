@@ -15,10 +15,10 @@
 
 ## Phase 2: Controlled Autonomy -- In Progress
 
-- Tiered autonomy levels (propose-only, sandboxed, canary, production)
-- Isolated execution environment for agent actions
-- Captured evidence of what changed during execution
-- Agent framework integrations and Python SDK
+- Sandboxed execution of approved commands in isolated Docker containers
+- Tamper-evident evidence packets with SHA-256 hashing
+- Workspace diffing to capture exactly what changed
+- Tiered autonomy levels and deterministic evidence review
 
 ## Phase 3: Separation of Powers
 
