@@ -2,7 +2,7 @@
 Identity Model Test Suite
 Tests actor validation, role extraction, and status enforcement.
 
-Usage:  python test_identity.py
+Usage:  python tests/test_identity.py
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 # Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from governance.identity import (
     Identity,

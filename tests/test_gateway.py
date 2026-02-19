@@ -6,7 +6,7 @@ correct HTTP status codes, response structure, and audit chain integrity.
 Usage:
     1. Set env:   export HUMAN_API_KEY=test-key-change-me
     2. Start:     uvicorn main:app --port 8000
-    3. Run tests: python test_gateway.py
+    3. Run tests: python tests/test_gateway.py
 """
 
 from __future__ import annotations

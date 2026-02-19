@@ -3,7 +3,7 @@ Policy Engine Test Suite
 Submits safe, escalatable, and malicious proposals to verify
 that the engine enforces every constitutional invariant.
 
-Usage:  python test_policy.py
+Usage:  python tests/test_policy.py
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 # Ensure project root is importable
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from governance.policy_engine import Decision, PolicyEngine
 

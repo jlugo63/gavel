@@ -6,7 +6,7 @@ Usage:
     1. Start Docker
     2. Start DB:      docker compose up -d
     3. Start gateway: uvicorn main:app --port 8000
-    4. Run tests:     python test_blastbox.py
+    4. Run tests:     python tests/test_blastbox.py  (from project root)
 """
 
 from __future__ import annotations
@@ -17,6 +17,9 @@ import sys
 import tempfile
 import shutil
 from dataclasses import asdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx
 
