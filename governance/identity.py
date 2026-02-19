@@ -9,6 +9,8 @@ The identities.json file is protected by the §I.2 check in policy_engine.py
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 from dataclasses import dataclass
@@ -79,3 +81,37 @@ def validate_actor(actor_id: str) -> Identity:
 def get_role(actor_id: str) -> str:
     """Get role for a validated actor."""
     return validate_actor(actor_id).role
+
+
+# ---------------------------------------------------------------------------
+# API-key authentication
+# ---------------------------------------------------------------------------
+
+def hash_api_key(raw_key: str) -> str:
+    """Return ``sha256:<hex>`` fingerprint of a raw API key."""
+    digest = hashlib.sha256(raw_key.encode()).hexdigest()
+    return f"sha256:{digest}"
+
+
+def authenticate_human(bearer_token: str) -> Identity:
+    """Resolve a Bearer token to an active human Identity.
+
+    Hashes the incoming token and compares (timing-safe) against every
+    human identity's ``key_fingerprint``.  Raises ``ValueError`` when no
+    match is found.
+    """
+    token_fp = hash_api_key(bearer_token)
+
+    identities = load_identities()
+    for identity in identities.values():
+        if identity.key_fingerprint is None:
+            continue
+        if not identity.role == "admin":
+            # Only human/admin identities use key auth
+            continue
+        if hmac.compare_digest(token_fp, identity.key_fingerprint):
+            if identity.status != "active":
+                raise ValueError(f"Identity {identity.actor_id} is {identity.status}")
+            return identity
+
+    raise ValueError("Invalid API key — no matching identity found")

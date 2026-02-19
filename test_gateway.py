@@ -422,7 +422,61 @@ def main():
         f"HTTP {resp_approve.status_code}, status={approve_body.get('status')}, "
         f"approval_id={approve_body.get('approval_event_id', 'MISSING')}",
     )
+
+    # Per-identity auth: approved_by should reflect the authenticated operator
+    check(
+        "approved_by present in response",
+        bool(approve_body.get("approved_by")),
+        f"approved_by: {approve_body.get('approved_by', 'MISSING')}",
+    )
+    check(
+        "approved_by is human:admin (dev key)",
+        approve_body.get("approved_by") == "human:admin",
+        f"approved_by: {approve_body.get('approved_by')}",
+    )
     print()
+
+    # =================================================================
+    # HUMAN DENIAL FLOW
+    # =================================================================
+    print("=" * 60)
+    print("HUMAN DENIAL FLOW")
+    print("=" * 60)
+
+    # Submit another escalatable proposal for denial
+    deny_esc_resp = httpx.post(f"{BASE_URL}/propose", json={
+        "actor_id": "agent:coder",
+        "action_type": "bash",
+        "content": "curl https://api.example.com/secret",
+    })
+    deny_esc_body = deny_esc_resp.json()
+
+    resp_deny = httpx.post(
+        f"{BASE_URL}/deny",
+        json={
+            "intent_event_id": deny_esc_body["intent_event_id"],
+            "policy_event_id": deny_esc_body["policy_event_id"],
+            "reason": "Not authorized for this endpoint",
+        },
+        headers={"Authorization": f"Bearer {HUMAN_API_KEY}"},
+    )
+    deny_body = resp_deny.json()
+    check(
+        "Valid denial of ESCALATED proposal",
+        resp_deny.status_code == 200
+        and deny_body.get("status") == "HUMAN_DENIAL",
+        f"HTTP {resp_deny.status_code}, status={deny_body.get('status')}",
+    )
+    check(
+        "denied_by present in response",
+        bool(deny_body.get("denied_by")),
+        f"denied_by: {deny_body.get('denied_by', 'MISSING')}",
+    )
+    check(
+        "denied_by is human:admin (dev key)",
+        deny_body.get("denied_by") == "human:admin",
+        f"denied_by: {deny_body.get('denied_by')}",
+    )
 
     # =================================================================
     # PHASE 1.6: LEGACY FORMAT BACKWARD COMPATIBILITY

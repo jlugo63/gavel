@@ -4,7 +4,7 @@
     "agent:coder": { "role": "coder", "status": "active", "key_fingerprint": null },
     "agent:reviewer": { "role": "reviewer", "status": "active", "key_fingerprint": null },
     "agent:risk": { "role": "risk", "status": "active", "key_fingerprint": null },
-    "human:admin": { "role": "admin", "status": "active", "key_fingerprint": null },
+    "human:admin": { "role": "admin", "status": "active", "key_fingerprint": "sha256:f2379873bb44b73c4d33761ac17a76879931895a6f497d174b3401bbf5108072" },
     "system:gateway": { "role": "system", "status": "active", "key_fingerprint": null }
   }
 }

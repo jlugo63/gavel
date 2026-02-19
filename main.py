@@ -20,10 +20,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from governance.audit import AuditSpineManager
-from governance.identity import validate_actor
+from governance.identity import authenticate_human, validate_actor
 from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
-HUMAN_API_KEY = os.environ.get("HUMAN_API_KEY", "")
 APPROVAL_TTL_SECONDS = int(os.environ.get("APPROVAL_TTL_SECONDS", "3600"))
 
 # ---------------------------------------------------------------------------
@@ -92,6 +91,25 @@ class DenialRequest(BaseModel):
     intent_event_id: str
     policy_event_id: str
     reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Human authentication helper
+# ---------------------------------------------------------------------------
+
+def _authenticate_human_request(authorization: str):
+    """Extract Bearer token and resolve to a human Identity.
+
+    Raises HTTPException on auth failure.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token.")
+
+    token = authorization[len("Bearer "):]
+    try:
+        return authenticate_human(token)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -310,18 +328,7 @@ def approve(
     """
 
     # --- Step 1: Authenticate ---
-    if not HUMAN_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="HUMAN_API_KEY environment variable is not configured.",
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token.")
-
-    token = authorization[len("Bearer "):]
-    if token != HUMAN_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key.")
+    human_identity = _authenticate_human_request(authorization)
 
     # --- Step 2: Validate referenced events ---
     intent_event = audit.get_event(request.intent_event_id)
@@ -372,12 +379,13 @@ def approve(
 
     # --- Step 3: Log approval to Audit Spine ---
     approval_event_id = audit.log_event(
-        actor_id="human:admin",
+        actor_id=human_identity.actor_id,
         action_type="HUMAN_APPROVAL_GRANTED",
         intent_payload={
             "intent_event_id": request.intent_event_id,
             "policy_event_id": request.policy_event_id,
             "approved_scope": "allow_execute_once",
+            "approved_by": human_identity.actor_id,
             "approved_at": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -390,6 +398,7 @@ def approve(
             "policy_event_id": request.policy_event_id,
             "status": "HUMAN_APPROVAL_GRANTED",
             "scope": "allow_execute_once",
+            "approved_by": human_identity.actor_id,
             "message": "Proposal approved by human operator.",
         },
     )
@@ -411,18 +420,7 @@ def deny(
     """
 
     # --- Step 1: Authenticate ---
-    if not HUMAN_API_KEY:
-        raise HTTPException(
-            status_code=500,
-            detail="HUMAN_API_KEY environment variable is not configured.",
-        )
-
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing Bearer token.")
-
-    token = authorization[len("Bearer "):]
-    if token != HUMAN_API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key.")
+    human_identity = _authenticate_human_request(authorization)
 
     # --- Step 2: Validate referenced events ---
     intent_event = audit.get_event(request.intent_event_id)
@@ -472,12 +470,13 @@ def deny(
 
     # --- Step 3: Log denial to Audit Spine ---
     denial_event_id = audit.log_event(
-        actor_id="human:admin",
+        actor_id=human_identity.actor_id,
         action_type="HUMAN_DENIAL",
         intent_payload={
             "intent_event_id": request.intent_event_id,
             "policy_event_id": request.policy_event_id,
             "reason": request.reason,
+            "denied_by": human_identity.actor_id,
             "denied_at": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -490,6 +489,7 @@ def deny(
             "policy_event_id": request.policy_event_id,
             "status": "HUMAN_DENIAL",
             "reason": request.reason,
+            "denied_by": human_identity.actor_id,
             "message": "Proposal denied by human operator.",
         },
     )

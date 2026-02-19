@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from governance.identity import (
     Identity,
+    authenticate_human,
+    hash_api_key,
     load_identities,
     reload_identities,
     validate_actor,
@@ -94,6 +96,62 @@ def main():
     ident = Identity(actor_id="test:x", role="tester", status="active")
     check("Identity fields accessible", ident.actor_id == "test:x" and ident.role == "tester")
     check("key_fingerprint defaults to None", ident.key_fingerprint is None)
+    print()
+
+    # --- hash_api_key ---
+    print("hash_api_key:")
+    fp = hash_api_key("test-key-change-me")
+    check(
+        "hash_api_key returns sha256: prefix",
+        fp.startswith("sha256:"),
+    )
+    check(
+        "hash_api_key is deterministic",
+        hash_api_key("test-key-change-me") == fp,
+    )
+    check(
+        "hash_api_key differs for different keys",
+        hash_api_key("other-key") != fp,
+    )
+    expected_fp = "sha256:f2379873bb44b73c4d33761ac17a76879931895a6f497d174b3401bbf5108072"
+    check(
+        "hash_api_key matches known SHA-256 for dev key",
+        fp == expected_fp,
+    )
+    print()
+
+    # --- authenticate_human ---
+    print("authenticate_human:")
+    # Force reload so the fingerprint from identities.json is picked up
+    reload_identities()
+
+    identity = authenticate_human("test-key-change-me")
+    check(
+        "authenticate_human resolves dev key -> human:admin",
+        identity.actor_id == "human:admin",
+    )
+    check(
+        "resolved identity has admin role",
+        identity.role == "admin",
+    )
+
+    try:
+        authenticate_human("wrong-key-12345")
+        check("authenticate_human rejects wrong key", False)
+    except ValueError as e:
+        check(
+            f"authenticate_human rejects wrong key: {e}",
+            "no matching identity" in str(e).lower(),
+        )
+
+    try:
+        authenticate_human("")
+        check("authenticate_human rejects empty key", False)
+    except ValueError as e:
+        check(
+            f"authenticate_human rejects empty key: {e}",
+            "no matching identity" in str(e).lower(),
+        )
     print()
 
     # --- Reload works ---
