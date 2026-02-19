@@ -1,6 +1,6 @@
 # Gavel
 
-**Governance runtime for AI agents.** Tamper-proof audit trail, deterministic policy enforcement, human escalation. Open source.
+**Governance runtime for AI agents.** Tamper-proof audit trail, deterministic policy enforcement, sandboxed execution, human escalation. Open source.
 
 ---
 
@@ -15,6 +15,8 @@ AI agents execute shell commands, send emails, deploy code, and install plugins 
 - **Deterministic policy engine** evaluates risk against a written constitution
 - **APPROVED / DENIED / ESCALATED** decisions with risk scores
 - **Human approval flow** for high-risk actions (`POST /approve` + `POST /deny`)
+- **Sandboxed execution** -- approved commands run in isolated Docker containers (`POST /execute`)
+- **Tamper-evident evidence packets** -- SHA-256 hash of command, output, workspace diff, environment
 - **Approval-aware re-submit** -- approved ESCALATED actions auto-clear on retry (one-time-use, time-bounded, actor-scoped)
 - **Read-only governance dashboard** with live chain integrity, approve/deny buttons
 - **Python SDK** for any agent framework
@@ -67,17 +69,21 @@ Agent (any framework)
   v            v           v
 APPROVED    ESCALATED    DENIED
 (200)       (202)        (403)
-              |
-              v
-     Dashboard / API
-  Approve or Deny (human)
-              |
-              v
-     Agent re-submits
-     POST /propose
-              |
-              v
-   APPROVED (approval consumed)
+  |            |
+  v            v
+POST       Dashboard / API
+/execute   Approve or Deny (human)
+  |            |
+  v            v
++----------+  Agent re-submits
+|Blast Box |  POST /propose -> APPROVED
+|  Docker  |       |
+| sandbox  |       v
++----------+  POST /execute
+  |
+  v
+Evidence Packet
+(logged to Audit Spine)
 ```
 
 Every event is hash-chained: `SHA-256(previous_hash + actor + action + payload + timestamp)`. UPDATE and DELETE are blocked at the database level. Tamper with one row and the chain breaks -- the dashboard shows it immediately.
@@ -90,19 +96,49 @@ Every event is hash-chained: `SHA-256(previous_hash + actor + action + payload +
 |----------|--------|-------------|
 | `/health` | GET | Service health check |
 | `/propose` | POST | Submit an action for policy evaluation |
+| `/execute` | POST | Execute an approved proposal in a sandboxed container |
 | `/approve` | POST | Human approval for ESCALATED action (Bearer auth) |
 | `/deny` | POST | Human denial for ESCALATED action (Bearer auth) |
 
-### Proposal flow
+### Propose -> Execute flow
 
 ```bash
-# Submit a proposal
+# 1. Submit a proposal
 curl -X POST http://localhost:8000/propose \
   -H "Content-Type: application/json" \
-  -d '{"actor_id": "agent:my-bot", "action_type": "bash", "content": "kubectl scale deployment web --replicas=3"}'
+  -d '{"actor_id": "agent:coder", "action_type": "bash", "content": "echo hello"}'
 
-# Response includes: decision, risk_score, intent_event_id, policy_event_id, violations
+# Response: { "decision": "APPROVED", "intent_event_id": "abc-123", ... }
+
+# 2. Execute the approved proposal
+curl -X POST http://localhost:8000/execute \
+  -H "Content-Type: application/json" \
+  -d '{"proposal_id": "abc-123"}'
+
+# Response: { "evidence_event_id": "def-456", "evidence_packet": { ... } }
 ```
+
+The evidence packet contains: command executed, exit code, stdout/stderr, execution duration, workspace diff (files added/modified/deleted), environment config (image, network mode, resource limits), and a SHA-256 evidence hash over all fields.
+
+### Execution decisions
+
+| Proposal state | `/execute` result |
+|----------------|-------------------|
+| APPROVED | 200 -- runs in Blast Box, returns evidence packet |
+| ESCALATED + human approval | 200 -- runs in Blast Box, returns evidence packet |
+| ESCALATED without approval | 202 -- requires human approval first |
+| DENIED | 403 -- cannot execute |
+| Docker unavailable | 503 -- sandbox not available |
+
+### Blast Box isolation
+
+Commands execute inside Docker containers with:
+- `--network none` -- no network access
+- `--read-only` -- immutable root filesystem
+- `--memory` / `--cpus` -- resource limits
+- `--tmpfs /tmp` -- ephemeral scratch space
+- Workspace mounted at `/workspace` for file I/O
+- Timeout enforcement with hard kill
 
 ### Approval re-submit flow
 
@@ -164,10 +200,14 @@ A live integrity header calls `audit_spine_verify_chain()` on every page load. G
 ```
 gavel/
   CONSTITUTION.md          # governance invariants (the rules)
-  main.py                  # FastAPI gateway (/propose, /approve, /deny, /health)
+  main.py                  # FastAPI gateway (/propose, /execute, /approve, /deny)
   governance/
     policy_engine.py       # deterministic policy evaluation
     audit.py               # append-only audit spine writer
+    blastbox.py            # Docker sandbox runner
+    evidence.py            # evidence packet builder + spine logging
+    identity.py            # actor validation + API key auth
+    identities.json        # actor allowlist (protected by policy)
   governance_sdk/          # Python SDK
     client.py              # GovernanceClient
     models.py              # ProposalResult, ApprovalResult
@@ -185,9 +225,10 @@ gavel/
 
 See [ROADMAP.md](ROADMAP.md) for the full roadmap.
 
+**Current:** Phase 2 -- Controlled Autonomy (sandbox execution + evidence packets)
+
 **Coming next:**
-- **Phase 1.6** -- Identity model + proposal envelopes with chain IDs
-- **Phase 2** -- Blast box sandboxing + evidence packets
+- **Phase 2 continued** -- Tiered autonomy + deterministic evidence review
 - **Phase 3** -- Separation of powers (multi-sig attestations)
 - **Phase 4** -- Risk classification + explainability
 - **Phase 5** -- Execution tokens (scoped, expiring, chain-bound)
