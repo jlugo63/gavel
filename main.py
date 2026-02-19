@@ -10,6 +10,7 @@ of what was attempted regardless of the outcome.
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import Any, Union
@@ -20,6 +21,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from governance.audit import AuditSpineManager
+from governance.blastbox import BlastBoxConfig, check_docker_available, run_in_blastbox
+from governance.evidence import create_evidence_packet, log_evidence_to_spine
 from governance.identity import authenticate_human, validate_actor
 from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
@@ -91,6 +94,10 @@ class DenialRequest(BaseModel):
     intent_event_id: str
     policy_event_id: str
     reason: str = ""
+
+
+class ExecuteRequest(BaseModel):
+    proposal_id: str  # intent_event_id from /propose
 
 
 # ---------------------------------------------------------------------------
@@ -491,5 +498,132 @@ def deny(
             "reason": request.reason,
             "denied_by": human_identity.actor_id,
             "message": "Proposal denied by human operator.",
+        },
+    )
+
+
+@app.post("/execute")
+def execute(request: ExecuteRequest):
+    """
+    Execute an approved proposal inside a Blast Box sandbox.
+    Constitutional Reference: SS II -- Blast Box sandbox execution.
+
+    Flow:
+      1. Validate the proposal exists and has been approved (or escalated+approved).
+      2. Run the command in a Docker sandbox.
+      3. Build an evidence packet and log it to the Audit Spine.
+    """
+
+    # --- Step 1: Look up the INBOUND_INTENT event ---
+    intent_event = audit.get_event(request.proposal_id)
+    if intent_event is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Proposal {request.proposal_id} not found."},
+        )
+    if intent_event["action_type"] != "INBOUND_INTENT":
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": (
+                    f"Event {request.proposal_id} is not an INBOUND_INTENT "
+                    f"(got '{intent_event['action_type']}')."
+                ),
+            },
+        )
+
+    # --- Step 2: Find the corresponding POLICY_EVAL ---
+    policy_event = audit.find_policy_eval_for_intent(request.proposal_id)
+    if policy_event is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": f"No policy evaluation found for proposal {request.proposal_id}.",
+            },
+        )
+
+    # --- Step 3: Parse policy decision ---
+    policy_payload = policy_event["intent_payload"]
+    if isinstance(policy_payload, str):
+        policy_payload = json.loads(policy_payload)
+    decision = policy_payload.get("decision")
+
+    # --- Step 4: Determine effective decision ---
+    if decision == "DENIED":
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Proposal was denied by policy. Cannot execute."},
+        )
+
+    if decision == "ESCALATED":
+        # Check for human approval in the audit spine
+        conn = audit._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT id FROM audit_events
+                WHERE action_type IN ('HUMAN_APPROVAL_GRANTED', 'APPROVAL_CONSUMED')
+                AND (intent_payload->>'intent_event_id' = %s
+                     OR intent_payload->>'current_intent_event_id' = %s)
+                LIMIT 1
+                """,
+                (request.proposal_id, request.proposal_id),
+            )
+            approval_row = cur.fetchone()
+            cur.close()
+        finally:
+            conn.close()
+
+        if approval_row is None:
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "message": "Proposal requires human approval before execution.",
+                },
+            )
+
+    # decision is APPROVED (or ESCALATED with approval) -- proceed
+
+    # --- Step 5: Check Docker availability ---
+    if not check_docker_available():
+        return JSONResponse(
+            status_code=503,
+            content={"error": "Docker is not available."},
+        )
+
+    # --- Step 6: Extract command from intent_payload ---
+    intent_payload = intent_event["intent_payload"]
+    if isinstance(intent_payload, str):
+        intent_payload = json.loads(intent_payload)
+    command = intent_payload.get("content", "")
+
+    # --- Step 7: Extract chain_id ---
+    chain_id = intent_payload.get("chain_id", "")
+
+    # --- Step 8-9: Run in Blast Box ---
+    config = BlastBoxConfig()
+    result = run_in_blastbox(command=command, config=config)
+
+    # --- Step 10: Build evidence packet ---
+    packet = create_evidence_packet(
+        proposal_id=request.proposal_id,
+        chain_id=chain_id,
+        actor_id=intent_event["actor_id"],
+        action_type=intent_payload.get("action_type", "unknown"),
+        command=command,
+        result=result,
+        config=config,
+    )
+
+    # --- Step 11: Log to Audit Spine ---
+    evidence_event_id = log_evidence_to_spine(audit, packet)
+
+    # --- Step 12: Return evidence ---
+    return JSONResponse(
+        status_code=200,
+        content={
+            "evidence_event_id": evidence_event_id,
+            "evidence_packet": packet.model_dump(),
         },
     )

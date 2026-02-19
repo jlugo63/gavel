@@ -150,6 +150,54 @@ class AuditSpineManager:
         finally:
             conn.close()
 
+    def find_policy_eval_for_intent(
+        self, intent_event_id: str
+    ) -> Optional[dict[str, Any]]:
+        """
+        Find the POLICY_EVAL event that corresponds to a given INBOUND_INTENT.
+
+        Looks up the intent event, then finds the earliest POLICY_EVAL with
+        the same actor_id created at or after the intent's timestamp.
+        Returns None if no matching event is found.
+        """
+        intent = self.get_event(intent_event_id)
+        if intent is None or intent["action_type"] != "INBOUND_INTENT":
+            return None
+
+        actor_id = intent["actor_id"]
+        created_at = intent["created_at"]
+
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, created_at, actor_id, action_type, "
+                "intent_payload, policy_version, event_hash, previous_event_hash "
+                "FROM audit_events "
+                "WHERE action_type LIKE 'POLICY_EVAL:%%' "
+                "  AND actor_id = %s "
+                "  AND created_at >= %s "
+                "ORDER BY created_at ASC "
+                "LIMIT 1",
+                (actor_id, created_at),
+            )
+            row = cur.fetchone()
+            cur.close()
+            if row is None:
+                return None
+            return {
+                "id": str(row[0]),
+                "created_at": row[1],
+                "actor_id": row[2],
+                "action_type": row[3],
+                "intent_payload": row[4],
+                "policy_version": row[5],
+                "event_hash": row[6],
+                "previous_event_hash": row[7],
+            }
+        finally:
+            conn.close()
+
     def find_valid_approval(
         self,
         actor_id: str,
