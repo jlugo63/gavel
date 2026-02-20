@@ -69,6 +69,16 @@ DEPENDENCY_FILES = {
     "Cargo.lock",
 }
 
+NETWORK_PATTERNS = [
+    ("Network command", re.compile(r"\b(?:curl|wget|fetch|http\.get|requests\.get|urllib)\b")),
+    ("URL reference", re.compile(r"(?:https?|ftp)://")),
+    ("DNS operation", re.compile(r"\b(?:getaddrinfo|resolve|nslookup|dig)\b")),
+    ("Socket operation", re.compile(r"(?:connect\(\)|socket\(|SOCK_STREAM)")),
+    ("Network error (blocked)", re.compile(
+        r"(?:Network is unreachable|Could not resolve host|Connection refused|Name or service not known)"
+    )),
+]
+
 SECRET_PATTERNS = [
     ("AWS Access Key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("GitHub Token", re.compile(r"gh[posrt]_[A-Za-z0-9_]{36,}")),
@@ -165,6 +175,24 @@ def review_dependencies(workspace_diff: dict) -> list[ReviewFinding]:
     return findings
 
 
+def review_network_attempts(stdout: str, stderr: str) -> list[ReviewFinding]:
+    """Scan command output for signs of network access attempts."""
+    findings: list[ReviewFinding] = []
+    seen: set[tuple[str, str]] = set()  # (pattern_name, stream)
+    for stream_name, stream_text in [("stdout", stdout), ("stderr", stderr)]:
+        for name, regex in NETWORK_PATTERNS:
+            key = (name, stream_name)
+            if key not in seen and regex.search(stream_text):
+                seen.add(key)
+                findings.append(ReviewFinding(
+                    category="network_attempt",
+                    severity="medium",
+                    description=f"{name} detected in {stream_name}",
+                    matched_pattern=regex.pattern,
+                ))
+    return findings
+
+
 def _compute_risk_delta(findings: list[ReviewFinding]) -> float:
     """Sum risk deltas for all findings, capped at 1.0."""
     total = sum(RISK_DELTA_MAP.get(f.category, 0.0) for f in findings)
@@ -192,6 +220,7 @@ def review_evidence(
     findings.extend(review_forbidden_paths(workspace_diff))
     findings.extend(review_secrets(stdout, stderr))
     findings.extend(review_dependencies(workspace_diff))
+    findings.extend(review_network_attempts(stdout, stderr))
 
     passed = len([f for f in findings if f.severity in ("critical", "high")]) == 0
     scope_compliant = len([f for f in findings if f.category == "scope_violation"]) == 0

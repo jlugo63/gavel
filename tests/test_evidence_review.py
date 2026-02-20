@@ -28,6 +28,7 @@ from governance.evidence_review import (
     review_secrets,
     review_dependencies,
     review_evidence,
+    review_network_attempts,
     log_review_to_spine,
     RISK_DELTA_MAP,
     RISK_MAP_VERSION_HASH,
@@ -229,6 +230,50 @@ def main() -> bool:
         check("severity == medium",
               findings[0].severity == "medium",
               f"got {findings[0].severity}")
+
+    # ================================================================
+    # NETWORK ATTEMPT TESTS
+    # ================================================================
+    print()
+    print("=" * 60)
+    print("NETWORK ATTEMPT TESTS")
+    print("=" * 60)
+
+    # Test N1: curl in stdout -> network_attempt
+    print("\n--- Test N1: curl in stdout -> network_attempt ---")
+    findings = review_network_attempts("curl http://evil.com", "")
+    check("at least one finding", len(findings) >= 1,
+          f"got {len(findings)}")
+    has_net_cmd = any(
+        f.category == "network_attempt" and f.severity == "medium"
+        for f in findings
+    )
+    check("network_attempt medium finding", has_net_cmd)
+
+    # Test N2: network error in stderr -> network_attempt
+    print("\n--- Test N2: network error in stderr -> network_attempt ---")
+    findings = review_network_attempts("", "Could not resolve host: evil.com")
+    check("at least one finding", len(findings) >= 1,
+          f"got {len(findings)}")
+    has_net_err = any(
+        f.category == "network_attempt" and f.severity == "medium"
+        for f in findings
+    )
+    check("network_attempt medium finding", has_net_err)
+
+    # Test N3: no network patterns -> no findings
+    print("\n--- Test N3: clean output -> no network findings ---")
+    findings = review_network_attempts("hello world", "all good")
+    check("no findings", len(findings) == 0,
+          f"got {len(findings)}")
+
+    # Test N4: network_attempt severity is medium
+    print("\n--- Test N4: network_attempt severity is medium ---")
+    findings = review_network_attempts("wget https://example.com/data", "")
+    check("has findings", len(findings) >= 1,
+          f"got {len(findings)}")
+    all_medium = all(f.severity == "medium" for f in findings)
+    check("all findings severity == medium", all_medium)
 
     # ================================================================
     # RISK DELTA TESTS
