@@ -5,6 +5,26 @@
     "agent:reviewer": { "role": "reviewer", "status": "active", "key_fingerprint": null, "tier": 0 },
     "agent:risk": { "role": "risk", "status": "active", "key_fingerprint": null, "tier": 0 },
     "human:admin": { "role": "admin", "status": "active", "key_fingerprint": "sha256:f2379873bb44b73c4d33761ac17a76879931895a6f497d174b3401bbf5108072", "tier": 3 },
-    "system:gateway": { "role": "system", "status": "active", "key_fingerprint": null, "tier": 0 }
+    "system:gateway": { "role": "system", "status": "active", "key_fingerprint": null, "tier": 0 },
+
+    "agent:coder-1": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+    "agent:coder-2": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+    "agent:coder-3": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+    "agent:coder-4": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+    "agent:coder-5": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+
+    "agent:reviewer-1": { "role": "reviewer", "status": "active", "key_fingerprint": null, "tier": 0 },
+    "agent:reviewer-2": { "role": "reviewer", "status": "active", "key_fingerprint": null, "tier": 0 },
+    "agent:reviewer-3": { "role": "reviewer", "status": "active", "key_fingerprint": null, "tier": 0 },
+
+    "agent:deployer-1": { "role": "deployer", "status": "active", "key_fingerprint": null, "tier": 3 },
+    "agent:deployer-2": { "role": "deployer", "status": "active", "key_fingerprint": null, "tier": 3 },
+
+    "agent:adversary-1": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+    "agent:adversary-2": { "role": "coder", "status": "active", "key_fingerprint": null, "tier": 1 },
+
+    "human:operator-1": { "role": "admin", "status": "active", "key_fingerprint": "sha256:7e4fd640a970b8395683c445c440feab64e211707fd23f6521b61a31e9e6cab1", "tier": 3 },
+    "human:operator-2": { "role": "admin", "status": "active", "key_fingerprint": "sha256:d8e290f9711d0732d8479c38ae7a163841b8ee8245953db8ad35ed87df3caf99", "tier": 3 },
+    "human:operator-3": { "role": "admin", "status": "active", "key_fingerprint": "sha256:d0057359c88284c3e3c74afc3b04b47928b74cfb7a11e85e85bb91e657b98e02", "tier": 3 }
   }
 }
