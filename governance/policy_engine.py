@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from governance.audit import AuditSpineManager
+from governance.evidence_review import ReviewResult
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -353,3 +354,26 @@ class PolicyEngine:
         )
 
         return result, event_id
+
+
+# ---------------------------------------------------------------------------
+# Evidence-based auto-approve
+# ---------------------------------------------------------------------------
+
+def evaluate_evidence_for_auto_approve(review_result: ReviewResult, tier: int) -> tuple[bool, str]:
+    """Evaluate evidence review results for automatic post-execution approval.
+
+    Only Tier 1 agents with clean evidence can be auto-approved.
+    """
+    if tier == 0:
+        return (False, "Tier 0: no execution, no auto-approve")
+    if tier == 1:
+        if review_result.passed and review_result.risk_delta <= 0.2:
+            return (True, "Tier 1: evidence review passed, auto-approved")
+        findings_count = len(review_result.findings)
+        return (False, f"Tier 1: evidence review failed -- {findings_count} findings, risk_delta={review_result.risk_delta}")
+    if tier == 2:
+        return (False, "Tier 2: requires attestation (not yet implemented)")
+    if tier == 3:
+        return (False, "Tier 3: requires human approval regardless of evidence")
+    return (False, f"Unknown tier {tier}: no auto-approve")
