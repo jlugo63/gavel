@@ -107,7 +107,7 @@ class AuditSpineManager:
                 conn.commit()
                 cur.close()
                 return event_id
-            except psycopg2.errors.UniqueViolation:
+            except (psycopg2.errors.UniqueViolation, psycopg2.errors.DeadlockDetected):
                 conn.rollback()
                 if attempt < _max_retries - 1:
                     time.sleep(0.05 * (attempt + 1))

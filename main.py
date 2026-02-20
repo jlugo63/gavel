@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Union
 from uuid import uuid4
 
@@ -25,7 +25,15 @@ from governance.blastbox import BlastBoxConfig, check_docker_available, run_in_b
 from governance.evidence import create_evidence_packet, log_evidence_to_spine
 from governance.autonomy import check_execution_allowed, get_tier_policy
 from governance.identity import authenticate_human, validate_actor
-from governance.policy_engine import Decision, PolicyEngine, PolicyResult
+from governance.liveness import (
+    check_escalation_status,
+    EscalationState,
+    get_escalation_summary,
+    build_escalation_tracker,
+    ESCALATION_INITIAL_TIMEOUT_SECONDS,
+    ESCALATION_MAX_TIMEOUT_SECONDS,
+)
+from governance.policy_engine import Decision, PolicyEngine, PolicyResult, evaluate_evidence_for_auto_approve
 
 import logging
 
@@ -138,6 +146,20 @@ def _authenticate_human_request(authorization: str):
 @app.get("/health")
 def health():
     return {"status": "operational", "service": "governance-gateway"}
+
+
+@app.get("/escalations")
+def escalations():
+    """Get summary of escalation states and pending escalations."""
+    summary = get_escalation_summary(audit)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "summary": summary,
+            "initial_timeout_seconds": ESCALATION_INITIAL_TIMEOUT_SECONDS,
+            "max_timeout_seconds": ESCALATION_MAX_TIMEOUT_SECONDS,
+        },
+    )
 
 
 def _parse_proposal(body: dict[str, Any]) -> ProposalEnvelope:
@@ -325,6 +347,7 @@ async def propose(request: Request):
         )
 
     if result.decision == Decision.ESCALATED:
+        now = datetime.now(timezone.utc)
         return JSONResponse(
             status_code=202,
             content={
@@ -337,6 +360,8 @@ async def propose(request: Request):
                     f"Once approved, resubmit the same /propose request and "
                     f"it will return APPROVED."
                 ),
+                "expires_at": (now + timedelta(seconds=ESCALATION_INITIAL_TIMEOUT_SECONDS)).isoformat(),
+                "hard_deadline": (now + timedelta(seconds=ESCALATION_MAX_TIMEOUT_SECONDS)).isoformat(),
             },
         )
 
@@ -601,6 +626,44 @@ def execute(request: ExecuteRequest):
         )
 
     if decision == "ESCALATED":
+        # Check for timeout -- either the deadline has passed or an
+        # AUTO_DENIED_TIMEOUT event already exists in the spine.
+        esc_state = check_escalation_status(audit, request.proposal_id)
+        if esc_state == EscalationState.AUTO_DENIED_TIMEOUT:
+            return JSONResponse(
+                status_code=410,
+                content={
+                    "error": "Escalation expired -- auto-denied after timeout.",
+                    "state": "AUTO_DENIED_TIMEOUT",
+                },
+            )
+        # Also check for a prior auto-deny event (state would be RESOLVED)
+        _ad_conn = audit._connect()
+        try:
+            _ad_cur = _ad_conn.cursor()
+            _ad_cur.execute(
+                """
+                SELECT id FROM audit_events
+                WHERE action_type = 'AUTO_DENIED_TIMEOUT'
+                AND intent_payload->>'intent_event_id' = %s
+                LIMIT 1
+                """,
+                (request.proposal_id,),
+            )
+            if _ad_cur.fetchone() is not None:
+                _ad_cur.close()
+                _ad_conn.close()
+                return JSONResponse(
+                    status_code=410,
+                    content={
+                        "error": "Escalation expired -- auto-denied after timeout.",
+                        "state": "AUTO_DENIED_TIMEOUT",
+                    },
+                )
+            _ad_cur.close()
+        finally:
+            _ad_conn.close()
+
         # Check for human approval in the audit spine
         conn = audit._connect()
         try:
@@ -693,7 +756,32 @@ def execute(request: ExecuteRequest):
     # --- Step 11: Log to Audit Spine (include tier metadata) ---
     evidence_event_id = log_evidence_to_spine(audit, packet)
 
-    # --- Step 12: Return evidence ---
+    # --- Step 12: Evidence-based auto-approve for Tier 1 ---
+    auto_approved = False
+    auto_approve_reason = ""
+    if tier_policy.tier == 1:
+        from governance.evidence_review import review_evidence, log_review_to_spine
+        review_result = review_evidence(packet)
+        log_review_to_spine(audit, packet, review_result)
+        auto_approved, auto_approve_reason = evaluate_evidence_for_auto_approve(
+            review_result, tier_policy.tier,
+        )
+        # Log auto-approve/deny decision
+        audit.log_event(
+            actor_id=actor_id,
+            action_type="EVIDENCE_AUTO_APPROVE" if auto_approved else "EVIDENCE_AUTO_DENY",
+            intent_payload={
+                "proposal_id": request.proposal_id,
+                "chain_id": chain_id,
+                "auto_approved": auto_approved,
+                "reason": auto_approve_reason,
+                "risk_delta": review_result.risk_delta,
+                "findings_count": len(review_result.findings),
+                "evidence_hash": packet.evidence_hash,
+            },
+        )
+
+    # --- Step 13: Return evidence ---
     return JSONResponse(
         status_code=200,
         content={
@@ -701,5 +789,7 @@ def execute(request: ExecuteRequest):
             "evidence_packet": packet.model_dump(),
             "tier": tier_policy.tier,
             "tier_policy": tier_policy.description,
+            "auto_approved": auto_approved,
+            "auto_approve_reason": auto_approve_reason,
         },
     )
