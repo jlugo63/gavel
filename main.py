@@ -27,6 +27,15 @@ from governance.autonomy import check_execution_allowed, get_tier_policy
 from governance.identity import authenticate_human, validate_actor
 from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
+import logging
+
+logger = logging.getLogger("gavel")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("[gavel] %(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+
 APPROVAL_TTL_SECONDS = int(os.environ.get("APPROVAL_TTL_SECONDS", "3600"))
 
 # ---------------------------------------------------------------------------
@@ -298,7 +307,14 @@ async def propose(request: Request):
         tier_description=tier_policy.description,
     )
 
-    # --- Step 3: Return decision with appropriate HTTP status ---
+    # --- Step 3: Log + return decision with appropriate HTTP status ---
+    content_trunc = content_str[:80]
+    logger.info(
+        '%s  %s (tier %d)  %s "%s"  risk=%.2f',
+        result.decision.value, envelope.actor_id, tier_policy.tier,
+        envelope.action.action_type, content_trunc, result.risk_score,
+    )
+
     if result.decision == Decision.DENIED:
         return JSONResponse(
             status_code=403,
@@ -412,6 +428,12 @@ def approve(
         },
     )
 
+    logger.info(
+        "APPROVAL  %s (tier %d)  intent=%s  scope=%s",
+        human_identity.actor_id, get_tier_policy(human_identity.actor_id).tier,
+        request.intent_event_id[:8], "allow_execute_once",
+    )
+
     return JSONResponse(
         status_code=200,
         content={
@@ -501,6 +523,13 @@ def deny(
             "denied_by": human_identity.actor_id,
             "denied_at": datetime.now(timezone.utc).isoformat(),
         },
+    )
+
+    reason_trunc = request.reason[:80] if request.reason else ""
+    logger.info(
+        'DENIAL  %s (tier %d)  intent=%s  reason="%s"',
+        human_identity.actor_id, get_tier_policy(human_identity.actor_id).tier,
+        request.intent_event_id[:8], reason_trunc,
     )
 
     return JSONResponse(
@@ -614,6 +643,11 @@ def execute(request: ExecuteRequest):
             content={"error": f"Tier check failed: {exc}"},
         )
     if not exec_allowed:
+        _blocked_tier = get_tier_policy(actor_id)
+        logger.info(
+            "BLOCKED  %s (tier %d)  %s",
+            actor_id, _blocked_tier.tier, tier_reason,
+        )
         return JSONResponse(
             status_code=403,
             content={"error": tier_reason},
@@ -641,6 +675,11 @@ def execute(request: ExecuteRequest):
 
     # --- Step 10: Build evidence packet ---
     tier_policy = get_tier_policy(actor_id)
+    logger.info(
+        "EXECUTE  %s (tier %d)  proposal=%s  exit=%d  duration=%dms",
+        actor_id, tier_policy.tier, request.proposal_id[:8],
+        result.exit_code, result.duration_ms,
+    )
     packet = create_evidence_packet(
         proposal_id=request.proposal_id,
         chain_id=chain_id,
