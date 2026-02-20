@@ -27,6 +27,7 @@ class Identity:
     role: str
     status: str
     key_fingerprint: Optional[str] = None
+    tier: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +52,7 @@ def load_identities() -> dict[str, Identity]:
             role=info["role"],
             status=info["status"],
             key_fingerprint=info.get("key_fingerprint"),
+            tier=info.get("tier", 0),
         )
     _cache = result
     return result

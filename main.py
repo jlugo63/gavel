@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from governance.audit import AuditSpineManager
 from governance.blastbox import BlastBoxConfig, check_docker_available, run_in_blastbox
 from governance.evidence import create_evidence_packet, log_evidence_to_spine
+from governance.autonomy import check_execution_allowed, get_tier_policy
 from governance.identity import authenticate_human, validate_actor
 from governance.policy_engine import Decision, PolicyEngine, PolicyResult
 
@@ -83,6 +84,8 @@ class ProposalResponse(BaseModel):
     matched_rules: list[str] = []
     signals: list[str] = []
     approval_consumed_event_id: str | None = None
+    actor_tier: int = 0
+    tier_description: str = ""
 
 
 class ApprovalRequest(BaseModel):
@@ -277,6 +280,9 @@ async def propose(request: Request):
                 signals=result.signals,
             )
 
+    # Look up actor tier for response
+    tier_policy = get_tier_policy(envelope.actor_id)
+
     response_body = ProposalResponse(
         chain_id=chain_id,
         decision=result.decision.value,
@@ -288,6 +294,8 @@ async def propose(request: Request):
         matched_rules=result.matched_rules,
         signals=result.signals,
         approval_consumed_event_id=approval_consumed_event_id,
+        actor_tier=tier_policy.tier,
+        tier_description=tier_policy.description,
     )
 
     # --- Step 3: Return decision with appropriate HTTP status ---
@@ -549,6 +557,7 @@ def execute(request: ExecuteRequest):
     decision = policy_payload.get("decision")
 
     # --- Step 4: Determine effective decision ---
+    approval_row = None
     if decision == "DENIED":
         return JSONResponse(
             status_code=403,
@@ -585,27 +594,46 @@ def execute(request: ExecuteRequest):
 
     # decision is APPROVED (or ESCALATED with approval) -- proceed
 
-    # --- Step 5: Check Docker availability ---
+    # --- Step 5: Tier check — enforce autonomy contract ---
+    has_human_approval = (decision == "ESCALATED" and approval_row is not None)
+    actor_id = intent_event["actor_id"]
+    try:
+        exec_allowed, tier_reason = check_execution_allowed(
+            actor_id, has_human_approval=has_human_approval,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=403,
+            content={"error": f"Tier check failed: {exc}"},
+        )
+    if not exec_allowed:
+        return JSONResponse(
+            status_code=403,
+            content={"error": tier_reason},
+        )
+
+    # --- Step 6: Check Docker availability ---
     if not check_docker_available():
         return JSONResponse(
             status_code=503,
             content={"error": "Docker is not available."},
         )
 
-    # --- Step 6: Extract command from intent_payload ---
+    # --- Step 7: Extract command from intent_payload ---
     intent_payload = intent_event["intent_payload"]
     if isinstance(intent_payload, str):
         intent_payload = json.loads(intent_payload)
     command = intent_payload.get("content", "")
 
-    # --- Step 7: Extract chain_id ---
+    # --- Step 8: Extract chain_id ---
     chain_id = intent_payload.get("chain_id", "")
 
-    # --- Step 8-9: Run in Blast Box ---
+    # --- Step 9: Run in Blast Box ---
     config = BlastBoxConfig()
     result = run_in_blastbox(command=command, config=config)
 
     # --- Step 10: Build evidence packet ---
+    tier_policy = get_tier_policy(actor_id)
     packet = create_evidence_packet(
         proposal_id=request.proposal_id,
         chain_id=chain_id,
@@ -616,7 +644,7 @@ def execute(request: ExecuteRequest):
         config=config,
     )
 
-    # --- Step 11: Log to Audit Spine ---
+    # --- Step 11: Log to Audit Spine (include tier metadata) ---
     evidence_event_id = log_evidence_to_spine(audit, packet)
 
     # --- Step 12: Return evidence ---
@@ -625,5 +653,7 @@ def execute(request: ExecuteRequest):
         content={
             "evidence_event_id": evidence_event_id,
             "evidence_packet": packet.model_dump(),
+            "tier": tier_policy.tier,
+            "tier_policy": tier_policy.description,
         },
     )
