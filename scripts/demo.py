@@ -15,6 +15,7 @@ Requires: httpx, psycopg2-binary
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -103,6 +104,11 @@ def main():
     banner("GAVEL  --  Constitutional AI Control Plane", C.MAGENTA)
     print(f"  {C.DIM}End-to-end governance demo{C.RESET}")
     print(f"  {C.DIM}Gateway: {BASE_URL}{C.RESET}")
+    print()
+    print(f"  {C.BOLD}{C.WHITE}How it works:{C.RESET}")
+    print(f"  {C.CYAN}*{C.RESET} Mechanical enforcement via middleware -- not prompt compliance")
+    print(f"  {C.CYAN}*{C.RESET} Every proposal gets an immutable, hash-chained ledger entry")
+    print(f"  {C.CYAN}*{C.RESET} Execution only happens in a sandbox and produces verifiable evidence")
     print()
     pause(1)
 
@@ -217,6 +223,30 @@ def main():
         print()
         print(f"    {C.DIM}evidence_event_id: {exec_body.get('evidence_event_id', '?')}{C.RESET}")
         print(f"    {C.DIM}tier: {exec_body.get('tier', '?')} ({exec_body.get('tier_policy', '?')}){C.RESET}")
+
+        # Sandbox proof
+        env = packet.get("environment", {})
+        print()
+        print(f"    {C.MAGENTA}{C.BOLD}Sandbox proof:{C.RESET}")
+        print(f"    {C.CYAN}network_mode:{C.RESET}      {env.get('network_mode', '?')}")
+        print(f"    {C.CYAN}container_image:{C.RESET}   {env.get('image', '?')}")
+        print(f"    {C.CYAN}memory_limit:{C.RESET}      {env.get('memory_limit', '?')}")
+        print(f"    {C.CYAN}cpu_limit:{C.RESET}         {env.get('cpu_limit', '?')}")
+
+        # Compute workspace hashes before/after from the diff
+        before_files = {**diff.get("modified", {}), **diff.get("deleted", {}), **diff.get("unchanged", {})}
+        after_files = {**diff.get("added", {}), **diff.get("modified", {}), **diff.get("unchanged", {})}
+        before_hash = hashlib.sha256(
+            json.dumps(before_files, sort_keys=True).encode()
+        ).hexdigest()
+        after_hash = hashlib.sha256(
+            json.dumps(after_files, sort_keys=True).encode()
+        ).hexdigest()
+        print()
+        print(f"    {C.YELLOW}workspace_hash_before:{C.RESET}")
+        print(f"    {before_hash}")
+        print(f"    {C.YELLOW}workspace_hash_after:{C.RESET}")
+        print(f"    {after_hash}")
     else:
         fail(f"Unexpected response: HTTP {r.status_code}")
         pp(r.json())
