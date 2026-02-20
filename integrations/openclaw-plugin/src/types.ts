@@ -53,6 +53,7 @@ export interface ProposalResponse {
   intent_event_id: string;
   policy_event_id: string;
   violations: Array<{ rule: string; description: string }>;
+  message?: string;
 }
 
 export interface HealthResponse {

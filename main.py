@@ -313,7 +313,14 @@ async def propose(request: Request):
             status_code=202,
             content={
                 **response_body.model_dump(),
-                "message": "Proposal requires human approval before execution.",
+                "message": (
+                    f"ESCALATED: This action requires human approval "
+                    f"(risk score: {result.risk_score}). Ask the user to "
+                    f"approve this action, then retry this exact command. "
+                    f"The user can approve via the Gavel dashboard or API. "
+                    f"Once approved, resubmit the same /propose request and "
+                    f"it will return APPROVED."
+                ),
             },
         )
 

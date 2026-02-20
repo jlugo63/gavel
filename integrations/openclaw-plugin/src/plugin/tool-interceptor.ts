@@ -164,10 +164,13 @@ export function createToolCallHook(
         return {
           block: true,
           blockReason:
-            `ESCALATED: Requires human approval. Risk score: ${response.risk_score}. ` +
-            `Approve at dashboard or via POST /approve with ` +
-            `intent_event_id: ${response.intent_event_id}, ` +
-            `policy_event_id: ${response.policy_event_id}`,
+            response.message ??
+            (`ESCALATED: This action requires human approval ` +
+            `(risk score: ${response.risk_score}). Ask the user to ` +
+            `approve this action, then retry this exact command. ` +
+            `The user can approve via the Gavel dashboard or API. ` +
+            `Once approved, resubmit the same /propose request and ` +
+            `it will return APPROVED.`),
         };
 
       default:
