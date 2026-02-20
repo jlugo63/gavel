@@ -7,6 +7,8 @@ const links = [
   { href: "/admin/events", label: "Audit Events" },
   { href: "/admin/intents", label: "Inbound Intents" },
   { href: "/admin/policy", label: "Policy Decisions" },
+  { href: "/admin/evidence", label: "Evidence" },
+  { href: "/admin/escalations", label: "Escalations" },
 ];
 
 export function AdminNav() {
