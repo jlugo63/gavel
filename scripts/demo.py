@@ -96,6 +96,11 @@ def pause(seconds: float = 1.0):
     time.sleep(seconds)
 
 
+def actor(actor_id: str, tier: int | str = "?", desc: str = ""):
+    suffix = f" -- {desc}" if desc else ""
+    print(f"  {C.CYAN}Actor:{C.RESET} {C.BOLD}{actor_id}{C.RESET}  (Tier {tier}{suffix})")
+
+
 # ---------------------------------------------------------------------------
 # Demo steps
 # ---------------------------------------------------------------------------
@@ -143,6 +148,7 @@ def main():
         "content": "CONSTITUTION.md",
     })
     body = r.json()
+    actor("agent:coder", body.get("actor_tier", "?"), body.get("tier_description", ""))
     print()
     print(f"  {decision_badge(body.get('decision', '?'))}  "
           f"HTTP {r.status_code}  "
@@ -171,6 +177,7 @@ def main():
         "content": "echo hello",
     })
     approved_body = r.json()
+    actor("agent:coder", approved_body.get("actor_tier", "?"), approved_body.get("tier_description", ""))
     print()
     print(f"  {decision_badge(approved_body.get('decision', '?'))}  "
           f"HTTP {r.status_code}  "
@@ -187,6 +194,7 @@ def main():
     banner("4. EXECUTE -- Blast Box Sandbox", C.GREEN)
     intent_id = approved_body.get("intent_event_id")
     step(4, f"POST /execute  proposal_id={intent_id[:12]}...")
+    actor("agent:coder", approved_body.get("actor_tier", "?"), approved_body.get("tier_description", ""))
     info("Running approved command in isolated Docker container...")
     pause(0.5)
 
@@ -269,6 +277,7 @@ def main():
         "content": curl_cmd,
     })
     esc_body = r.json()
+    actor("agent:coder", esc_body.get("actor_tier", "?"), esc_body.get("tier_description", ""))
     print()
     print(f"  {decision_badge(esc_body.get('decision', '?'))}  "
           f"HTTP {r.status_code}  "
@@ -301,6 +310,7 @@ def main():
     # -----------------------------------------------------------------------
     banner("6. HUMAN APPROVAL -- Operator Intervenes", C.GREEN)
     step(6, "POST /approve  (as human:admin)")
+    actor("human:admin", 3, "Production execution with human approval")
     info("Human operator reviews and approves the escalated action...")
     pause(0.5)
 
@@ -326,6 +336,7 @@ def main():
     # -----------------------------------------------------------------------
     banner("7. TIER ENFORCEMENT -- Propose-Only Actor", C.RED)
     step(7, "POST /execute as agent:reviewer (Tier 0)")
+    actor("agent:reviewer", 0, "Propose-only: no execution permitted")
     info("Tier 0 actor tries to execute -- should be blocked...")
     pause(0.5)
 
