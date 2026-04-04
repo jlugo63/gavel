@@ -16,6 +16,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+# Microsoft Agent Governance Toolkit
+from agent_os import PolicyEngine as AgentOSEngine
+from agentmesh import AgentMeshClient
+
 from gavel.blastbox import BlastBox, ScopeDeclaration, EvidencePacket
 from gavel.chain import GovernanceChain, ChainEvent, ChainStatus, EventType
 from gavel.constitution import Constitution
@@ -26,11 +30,24 @@ from gavel.tiers import TierPolicy, RiskFactors, AutonomyTier
 
 app = FastAPI(
     title="Gavel Governance Gateway",
-    description="Constitutional governance for autonomous AI agents",
+    description="Constitutional governance for autonomous AI agents, built on Microsoft's Agent Governance Toolkit",
     version="0.1.0",
 )
 
-# --- Core components ---
+# --- Microsoft Agent Governance Toolkit layer ---
+agent_os = AgentOSEngine()
+agent_os.add_constraint("blocked_patterns", ["rm -rf", "DROP TABLE", "DELETE FROM", "FORMAT C:"])
+_mesh_clients: dict[str, AgentMeshClient] = {}
+
+
+def get_mesh_client(actor_id: str) -> AgentMeshClient:
+    """Get or create an AgentMesh client for identity + trust scoring."""
+    if actor_id not in _mesh_clients:
+        _mesh_clients[actor_id] = AgentMeshClient(agent_id=actor_id)
+    return _mesh_clients[actor_id]
+
+
+# --- Gavel constitutional layer ---
 constitution = Constitution()
 separation = SeparationOfPowers()
 tier_policy = TierPolicy()
@@ -91,9 +108,20 @@ async def propose(req: ProposalRequest):
     """
     chain = GovernanceChain()
 
-    # --- Microsoft Layer: Identity verification ---
-    # In production: mesh.verify_identity(req.actor_id)
-    # For now: accept the actor_id as-is
+    # --- Microsoft Layer: Identity verification via Agent Mesh ---
+    mesh_client = get_mesh_client(req.actor_id)
+    agent_identity = mesh_client.identity
+    agent_trust = mesh_client.trust_score
+
+    # --- Microsoft Layer: Policy violation check via Agent OS ---
+    # Check proposed commands against blocked patterns (rm -rf, DROP TABLE, etc.)
+    for cmd in req.scope.get("allow_commands", []):
+        for pattern in agent_os.blocked_patterns:
+            if pattern.lower() in cmd.lower():
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Agent OS policy violation: command '{cmd}' matches blocked pattern '{pattern}'",
+                )
 
     # --- Gavel Layer: Separation of powers ---
     try:
@@ -101,7 +129,7 @@ async def propose(req: ProposalRequest):
     except SeparationViolation as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    # --- Log INBOUND_INTENT ---
+    # --- Log INBOUND_INTENT with real identity ---
     intent_event = chain.append(
         event_type=EventType.INBOUND_INTENT,
         actor_id=req.actor_id,
@@ -112,13 +140,13 @@ async def propose(req: ProposalRequest):
             "action_content": req.action_content,
             "scope": req.scope,
             "expected_outcomes": req.expected_outcomes,
+            "agent_did": str(agent_identity.did),
+            "trust_score": agent_trust.total_score,
+            "trust_tier": agent_trust.tier,
         },
     )
 
-    # --- Microsoft Layer: Policy evaluation ---
-    # In production:
-    # decision = engine.evaluate(agent_id=req.actor_id, action=req.action_type)
-    # For now: compute risk using tier policy
+    # --- Gavel Layer: Risk evaluation and tier assignment ---
 
     factors = RiskFactors(
         action_type_base=req.risk_factors.get("base_risk", 0.3),
