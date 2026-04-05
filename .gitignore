@@ -35,6 +35,9 @@ demo-*.png
 *.coverage
 .pytest_cache/
 htmlcov/
+**/test_*.py
+**/*_test.sql
+**/*_test.py
 
 # Marketing drafts (not code)
 DISCUSSION_POST.md
