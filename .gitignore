@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 
 # PostgreSQL data volume (managed by Docker)
-governance_db/data/
+v1/governance_db/data/
 
 # Environment files
 .env
@@ -35,9 +35,6 @@ demo-*.png
 *.coverage
 .pytest_cache/
 htmlcov/
-**/test_*.py
-**/*_test.sql
-**/*_test.py
 
 # Marketing drafts (not code)
 DISCUSSION_POST.md
@@ -45,8 +42,6 @@ HN_POST.md
 
 # Dev/test/demo artifacts — not shipped
 gavel-v2/scenarios/
-gavel-v2/tests/
 gavel-v2/demo/
 gavel-v2/Dockerfile
-gavel-v2/.github/
 gavel-v2/gavel/demo.html
