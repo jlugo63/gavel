@@ -49,12 +49,14 @@ app.add_middleware(
 async def demo_page():
     """Serve the visual governance chain demo."""
     html_path = Path(__file__).parent / "demo.html"
+    if not html_path.exists():
+        raise HTTPException(status_code=404, detail="Demo page not available in this deployment")
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
 
 # --- Microsoft Agent Governance Toolkit layer ---
 agent_os = AgentOSEngine()
-agent_os.add_constraint("blocked_patterns", ["rm -rf", "DROP TABLE", "DELETE FROM", "FORMAT C:"])
+BLOCKED_PATTERNS = ["rm -rf", "drop table", "delete from", "format c:", "truncate", "shutdown"]
 _mesh_clients: dict[str, AgentMeshClient] = {}
 
 
@@ -132,10 +134,9 @@ async def propose(req: ProposalRequest):
     agent_trust = mesh_client.trust_score
 
     # --- Microsoft Layer: Policy violation check via Agent OS ---
-    # Check proposed commands against blocked patterns (rm -rf, DROP TABLE, etc.)
     for cmd in req.scope.get("allow_commands", []):
-        for pattern in agent_os.blocked_patterns:
-            if pattern.lower() in cmd.lower():
+        for pattern in BLOCKED_PATTERNS:
+            if pattern in cmd.lower():
                 raise HTTPException(
                     status_code=403,
                     detail=f"Agent OS policy violation: command '{cmd}' matches blocked pattern '{pattern}'",
