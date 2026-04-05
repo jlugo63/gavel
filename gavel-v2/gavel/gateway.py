@@ -11,9 +11,12 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 # Microsoft Agent Governance Toolkit
@@ -33,6 +36,21 @@ app = FastAPI(
     description="Constitutional governance for autonomous AI agents, built on Microsoft's Agent Governance Toolkit",
     version="0.1.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/demo", response_class=HTMLResponse)
+async def demo_page():
+    """Serve the visual governance chain demo."""
+    html_path = Path(__file__).parent / "demo.html"
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
 
 # --- Microsoft Agent Governance Toolkit layer ---
 agent_os = AgentOSEngine()
