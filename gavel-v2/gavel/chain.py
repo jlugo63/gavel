@@ -149,6 +149,94 @@ class GovernanceChain:
                 return event
         return None
 
+    def to_artifact(self) -> dict:
+        """Export chain as a portable decision artifact.
+
+        Produces a self-contained, independently verifiable record
+        of the entire governance decision. Can be passed between
+        systems, stored externally, or verified without the runtime.
+        """
+        return {
+            "artifact_version": "1.0",
+            "chain_id": self.chain_id,
+            "status": self.status.value,
+            "created_at": self.created_at.isoformat(),
+            "integrity": self.verify_integrity(),
+            "events": [
+                {
+                    "event_id": e.event_id,
+                    "event_type": e.event_type.value,
+                    "actor_id": e.actor_id,
+                    "role_used": e.role_used,
+                    "timestamp": e.timestamp.isoformat(),
+                    "payload": e.payload,
+                    "prev_hash": e.prev_hash,
+                    "event_hash": e.event_hash,
+                }
+                for e in self.events
+            ],
+            "roster": {
+                aid: list(roles) for aid, roles in self._actor_roles.items()
+            },
+            "event_count": len(self.events),
+            "genesis_hash": hashlib.sha256(self.chain_id.encode()).hexdigest(),
+        }
+
+    @classmethod
+    def verify_artifact(cls, artifact: dict) -> dict:
+        """Verify a decision artifact's integrity without the runtime.
+
+        Takes a JSON artifact and re-computes every hash in the chain.
+        Returns verification result.
+        """
+        events = artifact.get("events", [])
+        if not events:
+            return {"valid": True, "events": 0, "errors": []}
+
+        errors = []
+        genesis = hashlib.sha256(artifact["chain_id"].encode()).hexdigest()
+        expected_prev = genesis
+
+        for i, event in enumerate(events):
+            # Check prev_hash links
+            if event["prev_hash"] != expected_prev:
+                errors.append(
+                    f"Event {i}: prev_hash mismatch "
+                    f"(expected {expected_prev[:16]}..., got {event['prev_hash'][:16]}...)"
+                )
+
+            # Recompute event hash
+            content = json.dumps(
+                {
+                    "event_id": event["event_id"],
+                    "chain_id": artifact["chain_id"],
+                    "event_type": event["event_type"],
+                    "actor_id": event["actor_id"],
+                    "role_used": event["role_used"],
+                    "timestamp": event["timestamp"],
+                    "payload": event["payload"],
+                    "prev_hash": event["prev_hash"],
+                },
+                sort_keys=True,
+            )
+            computed = hashlib.sha256(content.encode()).hexdigest()
+
+            if event["event_hash"] != computed:
+                errors.append(
+                    f"Event {i}: hash mismatch "
+                    f"(expected {computed[:16]}..., got {event['event_hash'][:16]}...)"
+                )
+
+            expected_prev = event["event_hash"]
+
+        return {
+            "valid": len(errors) == 0,
+            "events": len(events),
+            "chain_id": artifact["chain_id"],
+            "genesis_hash": genesis,
+            "errors": errors,
+        }
+
     def to_timeline(self) -> list[dict[str, Any]]:
         """Return a human-readable timeline of the chain."""
         return [

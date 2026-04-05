@@ -1,5 +1,6 @@
-"""Unit tests for GovernanceChain — hash integrity, event linking, timeline."""
+"""Unit tests for GovernanceChain — hash integrity, event linking, timeline, artifacts."""
 
+import copy
 import hashlib
 import json
 
@@ -131,3 +132,62 @@ class TestTimeline:
     def test_get_event_returns_none_for_missing(self, chain):
         chain.append(EventType.INBOUND_INTENT, "agent:a", "proposer")
         assert chain.get_event(EventType.APPROVAL_GRANTED) is None
+
+
+class TestArtifact:
+    def test_to_artifact_structure(self, chain):
+        chain.append(EventType.INBOUND_INTENT, "agent:a", "proposer", {"goal": "test"})
+        chain.append(EventType.POLICY_EVAL, "system:pe", "system", {"risk": 0.5})
+        artifact = chain.to_artifact()
+
+        assert artifact["artifact_version"] == "1.0"
+        assert artifact["chain_id"] == chain.chain_id
+        assert artifact["status"] == "PENDING"
+        assert "created_at" in artifact
+        assert artifact["integrity"] is True
+        assert artifact["event_count"] == 2
+        assert len(artifact["events"]) == 2
+        assert artifact["genesis_hash"] == hashlib.sha256(chain.chain_id.encode()).hexdigest()
+        assert "agent:a" in artifact["roster"]
+        assert "proposer" in artifact["roster"]["agent:a"]
+
+        # Verify event structure
+        event = artifact["events"][0]
+        for key in ("event_id", "event_type", "actor_id", "role_used",
+                     "timestamp", "payload", "prev_hash", "event_hash"):
+            assert key in event, f"Missing key: {key}"
+
+    def test_artifact_integrity(self, chain):
+        chain.append(EventType.INBOUND_INTENT, "agent:a", "proposer", {"goal": "deploy"})
+        chain.append(EventType.POLICY_EVAL, "system:pe", "system", {"risk": 0.3})
+        chain.append(EventType.APPROVAL_GRANTED, "agent:b", "approver")
+        artifact = chain.to_artifact()
+
+        result = GovernanceChain.verify_artifact(artifact)
+        assert result["valid"] is True
+        assert result["events"] == 3
+        assert result["chain_id"] == chain.chain_id
+        assert len(result["errors"]) == 0
+
+    def test_tampered_artifact_detected(self, chain):
+        chain.append(EventType.INBOUND_INTENT, "agent:a", "proposer", {"goal": "safe"})
+        chain.append(EventType.POLICY_EVAL, "system:pe", "system", {"risk": 0.2})
+        artifact = chain.to_artifact()
+
+        # Tamper with a payload without recomputing hashes
+        artifact["events"][0]["payload"] = {"goal": "malicious"}
+
+        result = GovernanceChain.verify_artifact(artifact)
+        assert result["valid"] is False
+        assert len(result["errors"]) > 0
+
+    def test_empty_chain_artifact(self, chain):
+        artifact = chain.to_artifact()
+        assert artifact["event_count"] == 0
+        assert artifact["events"] == []
+        assert artifact["integrity"] is True
+        assert artifact["roster"] == {}
+
+        result = GovernanceChain.verify_artifact(artifact)
+        assert result["valid"] is True
+        assert result["events"] == 0

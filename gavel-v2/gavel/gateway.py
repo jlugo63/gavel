@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -438,6 +438,23 @@ async def get_liveness():
             liveness.resolve(timeout.chain_id, "AUTO_DENIED")
 
     return liveness.status_summary()
+
+
+@app.get("/chain/{chain_id}/artifact")
+async def get_chain_artifact(chain_id: str):
+    """Export a governance chain as a portable decision artifact."""
+    chain = chains.get(chain_id)
+    if not chain:
+        raise HTTPException(status_code=404, detail="Chain not found")
+    return chain.to_artifact()
+
+
+@app.post("/verify-artifact")
+async def verify_artifact(request: Request):
+    """Verify a decision artifact's integrity without the runtime."""
+    artifact = await request.json()
+    result = GovernanceChain.verify_artifact(artifact)
+    return result
 
 
 @app.get("/constitution")
