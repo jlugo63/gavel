@@ -19,3 +19,31 @@ PROGRESS_THE_DREAM.md
 # Claude Code local config
 .claude/
 .mcp.json
+
+# Demo recordings and artifacts (large files, API keys)
+gavel-v2/demo/recordings/
+gavel-v2/demo/voiceover/
+gavel-v2/demo/screenshots/
+gavel-v2/demo/node_modules/
+gavel-v2/demo/*.mp4
+gavel-v2/demo/_offset.txt
+.playwright-mcp/
+demo-*.png
+
+# Test/dev artifacts
+.coverage
+*.coverage
+.pytest_cache/
+htmlcov/
+
+# Marketing drafts (not code)
+DISCUSSION_POST.md
+HN_POST.md
+
+# Dev/test/demo artifacts — not shipped
+gavel-v2/scenarios/
+gavel-v2/tests/
+gavel-v2/demo/
+gavel-v2/Dockerfile
+gavel-v2/.github/
+gavel-v2/gavel/demo.html
