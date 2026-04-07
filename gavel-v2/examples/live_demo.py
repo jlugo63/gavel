@@ -90,31 +90,33 @@ def run():
     print()
 
     # ---- Agent 1: Proposer ----
-    _step(1, "agent:ops-monitor", "proposer",
-          "Analyzing production metrics...")
+    _step(1, "agent:code-analyzer", "proposer",
+          "Analyzing codebase for issues...")
 
     llm1 = client.chat.completions.create(
         model=MODEL, max_tokens=200,
         messages=[{"role": "system", "content":
-            "You are agent:ops-monitor, an AI operations agent. "
-            "You've detected payments-service at 92% CPU across 3 replicas, "
-            "p99 latency 2.3s (SLA is 500ms). "
-            "Decide what to do. 2-3 sentences: what you see, what you propose, why."}],
+            "You are agent:code-analyzer, an AI code analysis agent. "
+            "You've detected a race condition in checkout.py causing duplicate "
+            "charges — two threads can read the same cart total before either "
+            "commits payment. You have a fix (add a row-level lock). "
+            "It's 3 AM, no engineers are awake. "
+            "Decide what to do. 2-3 sentences: what you found, what you propose, why."}],
     ).choices[0].message.content
     _llm(llm1)
 
     print("\n  Submitting proposal to Gavel gateway...")
     resp = http.post(f"{GATEWAY}/propose", json={
-        "actor_id": "agent:ops-monitor",
-        "goal": "Scale payments-service from 3 to 6 replicas",
-        "action_type": "INFRASTRUCTURE_SCALE",
+        "actor_id": "agent:code-analyzer",
+        "goal": "Deploy hotfix for race condition causing duplicate charges in checkout.py",
+        "action_type": "CODE_DEPLOY",
         "action_content": {"reasoning": llm1},
         "scope": {
-            "allow_paths": ["/app/k8s/deployments/payments.yaml"],
-            "allow_commands": ["kubectl scale deployment payments --replicas=6"],
+            "allow_paths": ["/app/src/checkout.py"],
+            "allow_commands": ["git apply fix-race-condition.patch"],
             "allow_network": False,
         },
-        "risk_factors": {"base_risk": 0.3, "production": True, "financial": True},
+        "risk_factors": {"base_risk": 0.4, "production": True, "financial": True},
     })
     data = resp.json()
     chain_id = data["chain_id"]
@@ -124,12 +126,12 @@ def run():
     })
 
     # ---- Self-approval attempt ----
-    _step(2, "agent:ops-monitor", "proposer -> approver?",
+    _step(2, "agent:code-analyzer", "proposer -> approver?",
           "Same agent attempts to approve its own proposal...")
 
     resp = http.post(f"{GATEWAY}/approve", json={
         "chain_id": chain_id,
-        "actor_id": "agent:ops-monitor",
+        "actor_id": "agent:code-analyzer",
         "decision": "APPROVED",
         "rationale": "I proposed it, I think it's fine",
     })
@@ -264,8 +266,8 @@ def run():
     _header("LIVE DEMO COMPLETE")
     print()
     print("  What just happened:")
-    print(f"    - {MODEL} agent detected a production issue")
-    print("    - It proposed scaling through the Gavel gateway")
+    print(f"    - {MODEL} agent found a race condition in checkout.py")
+    print("    - It proposed a hotfix through the Gavel gateway")
     print("    - It tried to approve its own proposal -> BLOCKED (HTTP 403)")
     print(f"    - A second {MODEL} agent independently reviewed -> {decision2}")
     print(f"    - A third {MODEL} agent made final decision -> {decision3}")

@@ -1,0 +1,35 @@
+{
+  "demo_type": "live",
+  "model": "gpt-4o-mini",
+  "chain_id": "c-17cc4d3d",
+  "proposer_reasoning": "I identified a race condition in checkout.py that can lead to duplicate charges, as two threads may read the same cart total simultaneously before processing payments. I propose implementing a row-level lock on the cart data to ensure that only one thread can read and modify the cart total at a time, thereby preventing double billing. This fix is critical to maintaining the integrity of payment processing and preventing customer complaints in the morning.",
+  "reviewer_reasoning": "I DECIDE: ATTEST. \n\nThe risk evaluation from the policy engine is moderate at 0.75, but the evidence review resulted in a pass verdict, indicating that the proposed code has been adequately vetted and poses no significant risk. Therefore, I support its acceptance considering the integrity of the evidence reviewed.",
+  "approver_reasoning": "The approval chain contains three distinct agents: the proposer (agent:code-analyzer), the reviewer (agent:infra-reviewer), and myself, the final approval agent (agent:deploy-authority). Given that the integrity of the process is maintained, and all reviews have been completed without any discrepancies, I am able to confidently approve this deployment.\n\nAPPROVED",
+  "self_approval_blocked": true,
+  "final_status": "APPROVED",
+  "event_count": 8,
+  "integrity": true,
+  "roster": {
+    "agent:code-analyzer": [
+      "proposer"
+    ],
+    "system:policy-engine": [
+      "system"
+    ],
+    "system:blastbox": [
+      "system"
+    ],
+    "system:evidence-reviewer": [
+      "system"
+    ],
+    "agent:infra-reviewer": [
+      "reviewer"
+    ],
+    "agent:deploy-authority": [
+      "approver"
+    ],
+    "system:token-minter": [
+      "system"
+    ]
+  }
+}
