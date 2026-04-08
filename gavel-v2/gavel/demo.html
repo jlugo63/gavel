@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gavel — Governance Chain Demo</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root {
+    --bg: #0c0c14; --surface: #141420; --surface2: #1c1c2c;
+    --border: #252536; --border-light: #2e2e44;
+    --text: #e8e8ef; --text2: #9898a8; --text3: #5e5e72;
+    --accent: #6c5ce7; --accent-dim: rgba(108,92,231,0.12); --accent-border: rgba(108,92,231,0.35);
+    --green: #00b894; --green-dim: rgba(0,184,148,0.10); --green-border: rgba(0,184,148,0.30);
+    --red: #ff6b6b; --red-dim: rgba(255,107,107,0.10); --red-border: rgba(255,107,107,0.30);
+    --amber: #fdcb6e; --amber-dim: rgba(253,203,110,0.10); --amber-border: rgba(253,203,110,0.30);
+    --blue: #74b9ff; --blue-dim: rgba(116,185,255,0.10);
+    --cyan: #81ecec; --cyan-dim: rgba(129,236,236,0.10);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* -- Top bar -- */
+  .top { padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .top-brand { display: flex; align-items: center; gap: 12px; }
+  .top-brand h1 { font-size: 16px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent); }
+  .top-brand .subtitle { font-size: 11px; color: var(--text3); border-left: 1px solid var(--border); padding-left: 12px; }
+  .top-right { display: flex; gap: 16px; align-items: center; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 10px; padding: 4px 10px; border-radius: 12px; }
+  .conn-live { background: var(--green-dim); color: var(--green); }
+  .conn-dead { background: var(--red-dim); color: var(--red); }
+  .conn-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .conn-live .conn-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .conn-dead .conn-dot { background: var(--red); }
+  .nav-link { font-size: 11px; color: var(--text2); text-decoration: none; padding: 4px 10px; border-radius: 4px; transition: color 0.15s; }
+  .nav-link:hover { color: var(--accent); }
+
+  /* -- Layout -- */
+  .main { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); height: calc(100vh - 52px); }
+  .column { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+
+  /* -- Panels -- */
+  .panel { display: flex; flex-direction: column; border-bottom: 1px solid var(--border); }
+  .panel.flex-grow { flex: 1; overflow: hidden; }
+  .panel-head { padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text3); }
+  .panel-badge { font-size: 10px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+  .panel-body { padding: 12px 16px; overflow-y: auto; flex: 1; }
+
+  /* -- Chips -- */
+  .chip { font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; display: inline-block; }
+  .chip-green { background: var(--green-dim); color: var(--green); }
+  .chip-red { background: var(--red-dim); color: var(--red); }
+  .chip-amber { background: var(--amber-dim); color: var(--amber); }
+  .chip-blue { background: var(--blue-dim); color: var(--blue); }
+  .chip-accent { background: var(--accent-dim); color: var(--accent); }
+  .chip-cyan { background: var(--cyan-dim); color: var(--cyan); }
+
+  /* -- Run Demo controls -- */
+  .controls { padding: 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .btn-run { background: var(--accent); color: #fff; border: none; font-size: 12px; font-weight: 700; padding: 10px 28px; border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; transition: filter 0.15s; }
+  .btn-run:hover { filter: brightness(1.15); }
+  .btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); font-size: 11px; font-weight: 600; padding: 8px 18px; border-radius: 5px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.15s; }
+  .btn-secondary:hover { border-color: var(--accent-border); color: var(--accent); }
+  .controls-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .control-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+  .control-select { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; color: var(--text); font-size: 11px; font-family: 'Inter', sans-serif; }
+  .control-select:focus { outline: none; border-color: var(--accent); }
+
+  /* -- Timeline -- */
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 7px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .tl-event { position: relative; margin-bottom: 12px; animation: slideIn 0.3s ease-out; }
+  .tl-dot { position: absolute; left: -20px; top: 4px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--bg); }
+  .tl-dot.green { background: var(--green); box-shadow: 0 0 8px rgba(0,184,148,0.4); }
+  .tl-dot.amber { background: var(--amber); box-shadow: 0 0 8px rgba(253,203,110,0.4); }
+  .tl-dot.red { background: var(--red); box-shadow: 0 0 8px rgba(255,107,107,0.4); }
+  .tl-dot.accent { background: var(--accent); box-shadow: 0 0 8px rgba(108,92,231,0.4); }
+  .tl-dot.blue { background: var(--blue); box-shadow: 0 0 8px rgba(116,185,255,0.4); }
+  .tl-dot.cyan { background: var(--cyan); box-shadow: 0 0 8px rgba(129,236,236,0.4); }
+  .tl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; }
+  .tl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .tl-type { font-size: 11px; font-weight: 600; }
+  .tl-time { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text3); }
+  .tl-body { font-size: 10px; color: var(--text2); line-height: 1.5; }
+  .tl-body code { font-family: 'JetBrains Mono', monospace; font-size: 9px; background: var(--surface2); padding: 1px 4px; border-radius: 2px; color: var(--text); }
+  .tl-hash { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text3); margin-top: 4px; }
+
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* -- Roster -- */
+  .roster-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .roster-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; text-align: center; }
+  .roster-role { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .roster-role.proposer { color: var(--accent); }
+  .roster-role.reviewer { color: var(--cyan); }
+  .roster-role.approver { color: var(--green); }
+  .roster-agent { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); margin-bottom: 2px; }
+  .roster-empty { font-size: 10px; color: var(--text3); font-style: italic; }
+
+  /* -- ATF Conformance -- */
+  .atf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .atf-item { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+  .atf-check { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .atf-pass { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-border); }
+  .atf-fail { background: var(--red-dim); color: var(--red); border: 1px solid var(--red-border); }
+  .atf-pending { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber-border); animation: pulse 1.5s infinite; }
+  .atf-label { font-size: 10px; color: var(--text2); }
+  .atf-req { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text3); }
+
+  /* -- Status banner -- */
+  .status-banner { padding: 10px 16px; font-size: 11px; font-weight: 600; text-align: center; letter-spacing: 0.5px; }
+  .status-idle { background: var(--surface2); color: var(--text3); }
+  .status-running { background: var(--accent-dim); color: var(--accent); border-bottom: 1px solid var(--accent-border); }
+  .status-approved { background: var(--green-dim); color: var(--green); border-bottom: 1px solid var(--green-border); }
+  .status-denied { background: var(--red-dim); color: var(--red); border-bottom: 1px solid var(--red-border); }
+  .status-escalated { background: var(--amber-dim); color: var(--amber); border-bottom: 1px solid var(--amber-border); }
+
+  /* -- Event log sidebar -- */
+  .event-row { padding: 5px 10px; border-bottom: 1px solid rgba(37,37,54,0.4); font-size: 10px; display: flex; gap: 8px; align-items: flex-start; animation: slideIn 0.15s ease-out; }
+  .event-time { font-family: 'JetBrains Mono', monospace; color: var(--text3); font-size: 9px; min-width: 60px; flex-shrink: 0; }
+  .event-type { font-weight: 600; min-width: 80px; flex-shrink: 0; font-size: 10px; }
+  .event-detail { color: var(--text2); word-break: break-word; font-size: 10px; }
+
+  .empty-state { color: var(--text3); font-size: 11px; text-align: center; padding: 24px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-brand">
+    <h1>GAVEL</h1>
+    <span class="subtitle">Governance Chain Demo</span>
+  </div>
+  <div class="top-right">
+    <a class="nav-link" href="/dashboard">Dashboard</a>
+    <div class="conn conn-dead" id="conn-indicator">
+      <div class="conn-dot"></div>
+      <span id="conn-text">Connecting...</span>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Left column: controls + timeline -->
+  <div class="column">
+    <div class="controls">
+      <div class="control-label">Governance Chain Demo</div>
+      <div class="controls-row" style="margin-top:8px">
+        <button class="btn-run" id="btn-run" onclick="runDemo()">Run Demo</button>
+        <button class="btn-secondary" onclick="resetDemo()">Reset</button>
+        <select class="control-select" id="scenario-select">
+          <option value="low">Low Risk - File Read (auto-approve)</option>
+          <option value="high" selected>High Risk - Bash Execution (escalated)</option>
+          <option value="critical">Critical - Production Deploy (full chain)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="status-banner" class="status-banner status-idle">Ready to run governance chain demo</div>
+
+    <!-- Separation of Powers Roster -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">Separation of Powers</span>
+        <span class="panel-badge">Art. III</span>
+      </div>
+      <div class="panel-body">
+        <div class="roster-grid">
+          <div class="roster-card">
+            <div class="roster-role proposer">Proposer</div>
+            <div id="roster-proposer" class="roster-empty">--</div>
+          </div>
+          <div class="roster-card">
+            <div class="roster-role reviewer">Reviewer</div>
+            <div id="roster-reviewer" class="roster-empty">--</div>
+          </div>
+          <div class="roster-card">
+            <div class="roster-role approver">Approver</div>
+            <div id="roster-approver" class="roster-empty">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chain Timeline -->
+    <div class="panel flex-grow">
+      <div class="panel-head">
+        <span class="panel-title">Chain Timeline</span>
+        <span class="panel-badge" id="chain-id-label">--</span>
+      </div>
+      <div class="panel-body" id="timeline-panel">
+        <div class="empty-state">Click "Run Demo" to start a governance chain</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right column: ATF + Event stream -->
+  <div class="column">
+    <!-- ATF Conformance -->
+    <div class="panel">
+      <div class="panel-head">
+        <span class="panel-title">ATF Conformance Status</span>
+        <span class="panel-badge">Agentic Trust Framework v0.9.1</span>
+      </div>
+      <div class="panel-body">
+        <div class="atf-grid" id="atf-panel">
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-i4">-</div>
+            <div><div class="atf-label">Purpose Declaration</div><div class="atf-req">ATF I-4</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-i5">-</div>
+            <div><div class="atf-label">Capability Manifest</div><div class="atf-req">ATF I-5</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-s1">-</div>
+            <div><div class="atf-label">Resource Allowlist</div><div class="atf-req">ATF S-1</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-s2">-</div>
+            <div><div class="atf-label">Action Boundaries</div><div class="atf-req">ATF S-2</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-a1">-</div>
+            <div><div class="atf-label">Decision Audit Trail</div><div class="atf-req">ATF A-1</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-a2">-</div>
+            <div><div class="atf-label">Chain Integrity</div><div class="atf-req">ATF A-2</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-r1">-</div>
+            <div><div class="atf-label">Risk Classification</div><div class="atf-req">ATF R-1</div></div>
+          </div>
+          <div class="atf-item">
+            <div class="atf-check atf-pending" id="atf-r2">-</div>
+            <div><div class="atf-label">Tiered Autonomy</div><div class="atf-req">ATF R-2</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Event Stream -->
+    <div class="panel flex-grow">
+      <div class="panel-head">
+        <span class="panel-title">Live Event Stream</span>
+        <span class="panel-badge" id="event-count">0</span>
+      </div>
+      <div class="panel-body" id="events-panel" style="padding:0">
+        <div class="empty-state">Waiting for events...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// =================================================================
+// State
+// =================================================================
+const demoState = {
+  running: false,
+  chainId: null,
+  chainData: null,
+  eventCount: 0,
+};
+
+const SCENARIOS = {
+  low: {
+    actor_id: 'demo-agent-alpha',
+    goal: 'Read configuration file for diagnostics',
+    action_type: 'file_read',
+    action_content: { tool: 'Read', file_path: '/app/config.yaml' },
+    scope: { allow_paths: ['/app/config.yaml'], allow_commands: [], allow_network: false },
+    expected_outcomes: ['Config file contents returned'],
+    risk_factors: { base_risk: 0.1, production: false, financial: false, pii: false },
+  },
+  high: {
+    actor_id: 'demo-agent-beta',
+    goal: 'Execute database migration script',
+    action_type: 'code_execution',
+    action_content: { tool: 'Bash', command: 'python manage.py migrate --run-syncdb' },
+    scope: { allow_paths: ['/app/'], allow_commands: ['python manage.py migrate --run-syncdb'], allow_network: false },
+    expected_outcomes: ['Database schema updated', 'Migration log generated'],
+    risk_factors: { base_risk: 0.6, production: false, financial: false, pii: true },
+  },
+  critical: {
+    actor_id: 'demo-agent-gamma',
+    goal: 'Deploy service to production cluster',
+    action_type: 'code_execution',
+    action_content: { tool: 'Bash', command: 'kubectl apply -f deploy/production.yaml' },
+    scope: { allow_paths: ['/deploy/'], allow_commands: ['kubectl apply -f deploy/production.yaml'], allow_network: true },
+    expected_outcomes: ['Production deployment successful', 'Health checks pass'],
+    risk_factors: { base_risk: 0.9, production: true, financial: true, pii: false },
+  },
+};
+
+const EVENT_COLORS = {
+  INBOUND_INTENT: 'accent',
+  POLICY_EVAL: 'blue',
+  BLASTBOX_EVIDENCE: 'cyan',
+  EVIDENCE_REVIEW: 'cyan',
+  REVIEW_ATTESTATION: 'amber',
+  ESCALATED: 'amber',
+  APPROVAL_GRANTED: 'green',
+  APPROVAL_DENIED: 'red',
+  AUTO_DENIED: 'red',
+  EXECUTION_TOKEN: 'green',
+};
+
+const EVENT_LABELS = {
+  INBOUND_INTENT: 'Inbound Intent',
+  POLICY_EVAL: 'Policy Evaluation',
+  BLASTBOX_EVIDENCE: 'Blast Box Evidence',
+  EVIDENCE_REVIEW: 'Evidence Review',
+  REVIEW_ATTESTATION: 'Attestation',
+  ESCALATED: 'Escalated',
+  APPROVAL_GRANTED: 'Approved',
+  APPROVAL_DENIED: 'Denied',
+  AUTO_DENIED: 'Auto-Denied',
+  EXECUTION_TOKEN: 'Execution Token',
+};
+
+// =================================================================
+// SSE Connection
+// =================================================================
+let eventSource = null;
+
+function connectSSE() {
+  eventSource = new EventSource('/events/stream');
+  const connEl = document.getElementById('conn-indicator');
+  const connText = document.getElementById('conn-text');
+
+  eventSource.onopen = () => {
+    connEl.className = 'conn conn-live';
+    connText.textContent = 'Live';
+  };
+
+  eventSource.onerror = () => {
+    connEl.className = 'conn conn-dead';
+    connText.textContent = 'Reconnecting...';
+  };
+
+  const eventTypes = [
+    'chain_event', 'agent_registered', 'agent_heartbeat', 'agent_killed',
+    'agent_dead', 'agent_promoted', 'agent_demoted', 'agent_status_change',
+    'escalation', 'action', 'gate_check', 'action_reported',
+    'agent_enrolled', 'enrollment_failed',
+  ];
+
+  eventTypes.forEach(type => {
+    eventSource.addEventListener(type, (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        addEventRow(type, data);
+      } catch (err) {}
+    });
+  });
+}
+
+function addEventRow(type, data) {
+  const panel = document.getElementById('events-panel');
+  if (demoState.eventCount === 0) {
+    panel.innerHTML = '';
+  }
+  demoState.eventCount++;
+  document.getElementById('event-count').textContent = demoState.eventCount;
+
+  const row = document.createElement('div');
+  row.className = 'event-row';
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  let detail = '';
+  if (data.agent_id) detail += data.agent_id;
+  if (data.payload) {
+    const p = data.payload;
+    if (p.tool) detail += ' | ' + p.tool;
+    if (p.status) detail += ' | ' + p.status;
+    if (p.risk !== undefined) detail += ' | risk=' + p.risk;
+    if (p.decision) detail += ' | ' + p.decision;
+    if (p.tier) detail += ' | ' + p.tier;
+  }
+
+  row.innerHTML = `
+    <span class="event-time">${timeStr}</span>
+    <span class="event-type" style="color:var(--${eventTypeColor(type)})">${type}</span>
+    <span class="event-detail">${detail}</span>
+  `;
+  panel.insertBefore(row, panel.firstChild);
+
+  // Keep max 100 rows
+  while (panel.children.length > 100) {
+    panel.removeChild(panel.lastChild);
+  }
+}
+
+function eventTypeColor(type) {
+  const map = {
+    chain_event: 'accent', agent_registered: 'green', agent_heartbeat: 'text3',
+    agent_killed: 'red', agent_dead: 'red', agent_promoted: 'cyan',
+    agent_demoted: 'amber', escalation: 'amber', action: 'blue',
+    gate_check: 'cyan', action_reported: 'blue', agent_status_change: 'green',
+    agent_enrolled: 'green', enrollment_failed: 'red',
+  };
+  return map[type] || 'text2';
+}
+
+// =================================================================
+// Demo Runner
+// =================================================================
+async function runDemo() {
+  if (demoState.running) return;
+  demoState.running = true;
+
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+
+  resetTimeline();
+  setBanner('running', 'Constructing governance chain...');
+
+  const scenario = SCENARIOS[document.getElementById('scenario-select').value];
+
+  try {
+    // Step 1: Register the demo agent
+    setBanner('running', 'Step 1/4 -- Registering agent...');
+    await registerAgent(scenario.actor_id);
+    await sleep(400);
+
+    // Step 2: Submit proposal
+    setBanner('running', 'Step 2/4 -- Submitting proposal...');
+    const proposal = await submitProposal(scenario);
+    demoState.chainId = proposal.chain_id;
+    demoState.chainData = proposal;
+
+    document.getElementById('chain-id-label').textContent = proposal.chain_id.substring(0, 12) + '...';
+
+    // Update roster
+    updateRoster('proposer', scenario.actor_id);
+
+    // Render the timeline from response
+    renderTimeline(proposal.timeline, proposal);
+
+    // Update ATF checks
+    updateATF('i4', true);   // Purpose declared in proposal
+    updateATF('i5', true);   // Capability manifest (scope)
+    updateATF('s1', true);   // Resource allowlist (scope.allow_paths)
+    updateATF('s2', true);   // Action boundaries (scope.allow_commands)
+    updateATF('r1', true);   // Risk classified
+    updateATF('r2', true);   // Tier assigned
+
+    await sleep(600);
+
+    // Step 3: If escalated, submit attestation and approval
+    if (proposal.status === 'ESCALATED') {
+      setBanner('escalated', 'Chain ESCALATED -- Awaiting attestation and approval');
+
+      await sleep(800);
+
+      // Attestation
+      setBanner('running', 'Step 3/4 -- Submitting attestation...');
+      const reviewer = 'demo-reviewer-' + Math.random().toString(36).slice(2, 6);
+      await registerAgent(reviewer);
+      const attestResult = await submitAttestation(proposal.chain_id, reviewer);
+      updateRoster('reviewer', reviewer);
+      updateATF('a1', true);  // Audit trail maintained
+
+      await sleep(600);
+
+      // Approval
+      setBanner('running', 'Step 4/4 -- Submitting approval...');
+      const approver = 'demo-approver-' + Math.random().toString(36).slice(2, 6);
+      await registerAgent(approver);
+      const approveResult = await submitApproval(proposal.chain_id, approver);
+      updateRoster('approver', approver);
+
+      // Fetch final chain state
+      const finalChain = await fetchChain(proposal.chain_id);
+      renderTimeline(finalChain.timeline, finalChain);
+      updateATF('a2', finalChain.integrity);
+
+      if (approveResult.status === 'APPROVED') {
+        setBanner('approved', 'Chain APPROVED -- Execution token minted: ' + (approveResult.execution_token || ''));
+      } else {
+        setBanner('denied', 'Chain DENIED');
+      }
+    } else if (proposal.status === 'APPROVED') {
+      // Auto-approved (low risk)
+      updateATF('a1', true);
+      updateATF('a2', true);
+      setBanner('approved', 'Chain AUTO-APPROVED -- Low risk, evidence passed');
+    } else {
+      setBanner('idle', 'Chain status: ' + proposal.status);
+    }
+  } catch (err) {
+    setBanner('denied', 'Error: ' + err.message);
+    console.error(err);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run Demo';
+  demoState.running = false;
+}
+
+function resetDemo() {
+  demoState.chainId = null;
+  demoState.chainData = null;
+  resetTimeline();
+  setBanner('idle', 'Ready to run governance chain demo');
+  document.getElementById('chain-id-label').textContent = '--';
+
+  // Reset roster
+  ['proposer', 'reviewer', 'approver'].forEach(role => {
+    const el = document.getElementById('roster-' + role);
+    el.textContent = '--';
+    el.className = 'roster-empty';
+  });
+
+  // Reset ATF
+  ['i4', 'i5', 's1', 's2', 'a1', 'a2', 'r1', 'r2'].forEach(id => {
+    const el = document.getElementById('atf-' + id);
+    el.className = 'atf-check atf-pending';
+    el.textContent = '-';
+  });
+}
+
+// =================================================================
+// API Calls
+// =================================================================
+async function registerAgent(agentId) {
+  const res = await fetch('/agents/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      agent_id: agentId,
+      display_name: agentId,
+      agent_type: 'llm',
+      capabilities: ['Read', 'Write', 'Bash'],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('Register failed: ' + text);
+  }
+  return res.json();
+}
+
+async function submitProposal(scenario) {
+  const res = await fetch('/propose', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scenario),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('Proposal failed: ' + text);
+  }
+  return res.json();
+}
+
+async function submitAttestation(chainId, reviewerId) {
+  const res = await fetch('/attest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chain_id: chainId,
+      actor_id: reviewerId,
+      role: 'reviewer',
+      decision: 'ATTEST',
+      rationale: 'Evidence reviewed -- blast box output is safe, scope compliant',
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('Attestation failed: ' + text);
+  }
+  return res.json();
+}
+
+async function submitApproval(chainId, approverId) {
+  const res = await fetch('/approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chain_id: chainId,
+      actor_id: approverId,
+      role: 'approver',
+      decision: 'APPROVED',
+      rationale: 'Attestation verified, risk acceptable, scope constrained',
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('Approval failed: ' + text);
+  }
+  return res.json();
+}
+
+async function fetchChain(chainId) {
+  const res = await fetch('/chain/' + chainId);
+  if (!res.ok) throw new Error('Chain fetch failed');
+  return res.json();
+}
+
+// =================================================================
+// UI Helpers
+// =================================================================
+function setBanner(status, text) {
+  const el = document.getElementById('status-banner');
+  el.className = 'status-banner status-' + status;
+  el.textContent = text;
+}
+
+function updateRoster(role, agentId) {
+  const el = document.getElementById('roster-' + role);
+  el.textContent = agentId;
+  el.className = 'roster-agent';
+}
+
+function updateATF(id, passed) {
+  const el = document.getElementById('atf-' + id);
+  if (passed) {
+    el.className = 'atf-check atf-pass';
+    el.textContent = '\u2713';
+  } else {
+    el.className = 'atf-check atf-fail';
+    el.textContent = '\u2717';
+  }
+}
+
+function resetTimeline() {
+  document.getElementById('timeline-panel').innerHTML =
+    '<div class="empty-state">Click "Run Demo" to start a governance chain</div>';
+}
+
+function renderTimeline(timeline, chainData) {
+  const panel = document.getElementById('timeline-panel');
+  panel.innerHTML = '';
+
+  if (!timeline || timeline.length === 0) {
+    panel.innerHTML = '<div class="empty-state">No events in chain</div>';
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'timeline';
+
+  timeline.forEach((entry, idx) => {
+    const ev = document.createElement('div');
+    ev.className = 'tl-event';
+    ev.style.animationDelay = (idx * 0.08) + 's';
+
+    const eventType = entry.type || entry.event_type || 'UNKNOWN';
+    const color = EVENT_COLORS[eventType] || 'text2';
+    const label = EVENT_LABELS[eventType] || eventType;
+
+    // Build body content from payload
+    let body = '';
+    if (entry.payload) {
+      const p = entry.payload;
+      if (p.goal) body += '<div>Goal: <code>' + escapeHtml(p.goal) + '</code></div>';
+      if (p.action_type) body += '<div>Action: <code>' + escapeHtml(p.action_type) + '</code></div>';
+      if (p.agent_did) body += '<div>DID: <code>' + escapeHtml(p.agent_did) + '</code></div>';
+      if (p.trust_score !== undefined) body += '<div>Trust: <code>' + p.trust_score + '</code> | Tier: <code>' + (p.trust_tier || '') + '</code></div>';
+      if (p.risk_score !== undefined) body += '<div>Risk: <code>' + p.risk_score.toFixed(3) + '</code></div>';
+      if (p.tier) body += '<div>Tier: <span class="chip chip-accent">' + escapeHtml(p.tier_name || p.tier) + '</span></div>';
+      if (p.requirements) {
+        const r = p.requirements;
+        let reqs = [];
+        if (r.blast_box) reqs.push('Blast Box');
+        if (r.evidence_review) reqs.push('Evidence Review');
+        if (r.human_approval) reqs.push('Human Approval');
+        if (r.agent_attestation) reqs.push('Attestation x' + r.min_attestations);
+        if (reqs.length) body += '<div>Requires: ' + reqs.map(r => '<span class="chip chip-amber">' + r + '</span> ').join('') + '</div>';
+        if (r.sla_seconds) body += '<div>SLA: <code>' + r.sla_seconds + 's</code></div>';
+      }
+      if (p.packet_id) body += '<div>Evidence: <code>' + escapeHtml(p.packet_id) + '</code></div>';
+      if (p.packet_hash) body += '<div>Hash: <code>' + escapeHtml(p.packet_hash.substring(0, 16)) + '...</code></div>';
+      if (p.exit_code !== undefined) body += '<div>Exit code: <code>' + p.exit_code + '</code></div>';
+      if (p.verdict) body += '<div>Verdict: <span class="chip ' + (p.verdict === 'PASS' ? 'chip-green' : 'chip-red') + '">' + p.verdict + '</span></div>';
+      if (p.scope_compliance !== undefined) body += '<div>Scope compliance: <code>' + p.scope_compliance + '</code></div>';
+      if (p.decision) body += '<div>Decision: <span class="chip ' + (p.decision === 'ATTEST' || p.decision === 'APPROVED' ? 'chip-green' : 'chip-red') + '">' + p.decision + '</span></div>';
+      if (p.rationale) body += '<div>Rationale: <code>' + escapeHtml(p.rationale) + '</code></div>';
+      if (p.reason) body += '<div>Reason: ' + escapeHtml(p.reason) + '</div>';
+      if (p.token_id) body += '<div>Token: <code>' + escapeHtml(p.token_id) + '</code></div>';
+      if (p.expires_at) body += '<div>Expires: <code>' + escapeHtml(p.expires_at) + '</code></div>';
+    }
+
+    const timeStr = entry.timestamp
+      ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })
+      : '';
+
+    const hashStr = entry.hash ? entry.hash.substring(0, 12) + '...' : '';
+
+    ev.innerHTML = `
+      <div class="tl-dot ${color}"></div>
+      <div class="tl-card">
+        <div class="tl-header">
+          <span class="tl-type" style="color:var(--${color})">${label}</span>
+          <span class="tl-time">${timeStr}</span>
+        </div>
+        <div class="tl-body">
+          <div style="margin-bottom:4px"><code>${escapeHtml(entry.actor || '')}</code> <span class="chip chip-accent">${escapeHtml(entry.role || '')}</span></div>
+          ${body}
+        </div>
+        ${hashStr ? '<div class="tl-hash">' + hashStr + '</div>' : ''}
+      </div>
+    `;
+    container.appendChild(ev);
+  });
+
+  panel.appendChild(container);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// =================================================================
+// Init
+// =================================================================
+connectSSE();
+</script>
+</body>
+</html>

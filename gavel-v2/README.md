@@ -36,6 +36,16 @@ pip install gavel-governance[api]   # + FastAPI gateway
 pip install gavel-governance[full]  # + Microsoft Agent Governance Toolkit
 ```
 
+## Quick Start (Docker)
+
+```bash
+git clone https://github.com/jlugo63/constitutional-control-plane.git
+cd constitutional-control-plane/gavel-v2
+cp .env.example .env
+docker compose up
+# Open http://localhost:8100/dashboard
+```
+
 ## Quick Start
 
 ```bash

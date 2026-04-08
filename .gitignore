@@ -43,5 +43,3 @@ HN_POST.md
 # Dev/test/demo artifacts — not shipped
 gavel-v2/scenarios/
 gavel-v2/demo/
-gavel-v2/Dockerfile
-gavel-v2/gavel/demo.html

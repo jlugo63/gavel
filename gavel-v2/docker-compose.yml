@@ -1,0 +1,39 @@
+services:
+  gavel-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ADMIN_MODE: ${GAVEL_ADMIN_MODE:-false}
+    ports:
+      - "${GAVEL_PORT:-8100}:8100"
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/status')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - gavel-data:/app/data
+
+  gavel-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8200:8200"
+    env_file:
+      - .env
+    environment:
+      - GAVEL_API_URL=http://gavel-gateway:8100
+    depends_on:
+      gavel-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["uvicorn", "gavel.gateway:app", "--host", "0.0.0.0", "--port", "8200"]
+
+volumes:
+  gavel-data:

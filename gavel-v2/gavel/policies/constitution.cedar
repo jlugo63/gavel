@@ -88,3 +88,68 @@ permit(
     action == Action::"Deny",
     resource
 ) when { principal.type == "human" };
+
+// ============================================================
+// Article V — Enrollment Gate (ATF Pre-Flight)
+// ============================================================
+
+// V.0 — Unenrolled agents are denied ALL actions (highest priority)
+// Before an agent operates, it must complete enrollment:
+//   ATF I-4: Purpose Declaration
+//   ATF I-5: Capability Manifest
+//   ATF S-1: Resource Allowlist
+//   ATF S-2: Action Boundaries
+// Runtime: PolicyRule "cedar-enrollment-gate" (priority 210)
+forbid(
+    principal,
+    action,
+    resource
+) when { principal.enrolled == false };
+
+// ============================================================
+// Article VI — Kill Switch & Registration (Phase 3)
+// ============================================================
+
+// VI.1 — Suspended agents are denied ALL actions (kill switch)
+// Runtime: PolicyRule "cedar-kill-switch" (priority 200)
+forbid(
+    principal,
+    action,
+    resource
+) when { principal.status == "SUSPENDED" };
+
+// VI.2 — Dead agents are denied ALL actions
+// Runtime: PolicyRule "cedar-dead-agent" (priority 195)
+forbid(
+    principal,
+    action,
+    resource
+) when { principal.status == "DEAD" };
+
+// VI.3 — Unregistered agents are denied ALL actions
+// Runtime: Enforced at gate.py lookup — no record = deny
+forbid(
+    principal,
+    action,
+    resource
+) when { principal.registered == false };
+
+// ============================================================
+// Article VII — Dangerous Command Guard (Phase 3)
+// ============================================================
+
+// VII.1 — Destructive shell commands are forbidden
+// Runtime: PolicyRule "cedar-dangerous-commands" (priority 180)
+forbid(
+    principal,
+    action == Action::"CodeExecution",
+    resource
+) when { resource.command_matches_blocked_pattern == true };
+
+// VII.2 — Writes to credential/secret files are forbidden
+// Runtime: PolicyRule "cedar-sensitive-file-guard" (priority 170)
+forbid(
+    principal,
+    action == Action::"FileWrite",
+    resource
+) when { resource.path_contains_sensitive_token == true };
