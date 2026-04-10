@@ -181,7 +181,7 @@ def get_machine_id() -> str:
 
 class AdminGateResult(BaseModel):
     """Result of evaluating the triple gate for admin mode activation."""
-    passed: bool
+    passed: bool = False
     env_flag_ok: bool = False
     production_block_ok: bool = False
     machine_allowlist_ok: bool = False
