@@ -43,7 +43,7 @@
   .conn-dead .conn-dot { background: var(--red); }
 
   /* ── Grid ── */
-  .grid { display: grid; grid-template-columns: 1fr 1.3fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--border); height: calc(100vh - 52px); }
+  .grid { display: grid; grid-template-columns: 1fr 1.3fr 1fr; grid-template-rows: 1fr 1fr; gap: 1px; background: var(--border); height: calc(100vh - 94px); }
   .panel { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
   .panel-head { padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
   .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text3); }
@@ -174,6 +174,117 @@
   .enroll-alert-text { font-size: 11px; color: var(--amber); font-weight: 500; }
   .enroll-btn { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-border); font-size: 10px; font-weight: 700; padding: 4px 12px; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
   .enroll-btn:hover { background: var(--accent); color: #fff; }
+
+  /* ── Tab bar ── */
+  .tab-bar { display: flex; gap: 4px; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 18px; background: transparent; border: none; color: var(--text3); font-family: 'JetBrains Mono', monospace; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: var(--text2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Tab content ── */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Data tables ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { text-align: left; padding: 10px 12px; color: var(--text3); border-bottom: 1px solid var(--border); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(37,37,54,0.4); color: var(--text); font-size: 12px; }
+  .data-table tr:hover td { background: var(--surface); }
+
+  /* ── Status indicators ── */
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.idle { background: var(--amber); }
+  .status-dot.suspended { background: var(--red); }
+  .status-dot.dead { background: var(--text3); }
+
+  /* ── Trust bar (table) ── */
+  .trust-bar { width: 80px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .trust-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+  /* ── Severity badges ── */
+  .severity-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .severity-critical { background: var(--red-dim); color: var(--red); }
+  .severity-serious { background: var(--amber-dim); color: var(--amber); }
+  .severity-standard { background: rgba(253,203,110,0.15); color: #fdcb6e; }
+  .severity-minor { background: rgba(94,94,114,0.2); color: var(--text3); }
+  .severity-enrolled { background: var(--green-dim); color: var(--green); }
+  .severity-pending { background: var(--amber-dim); color: var(--amber); }
+  .severity-incomplete { background: var(--red-dim); color: var(--red); }
+  .severity-suspended { background: rgba(255,107,107,0.15); color: #ff8800; }
+  .severity-unknown { background: rgba(94,94,114,0.2); color: var(--text3); }
+
+  /* ── Incident cards ── */
+  .incident-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .incident-card.overdue { border-color: var(--red); animation: pulse-border 2s infinite; }
+  @keyframes pulse-border { 0%, 100% { border-color: var(--red); } 50% { border-color: #ff9999; } }
+
+  /* ── Chain timeline (tab) ── */
+  .tl-chain-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
+  .tl-chain-item:hover { border-color: var(--border-light); }
+  .tl-chain-events { padding-left: 20px; border-left: 2px solid var(--border); margin: 12px 0 12px 20px; }
+  .tl-chain-event { padding: 8px 0 8px 16px; position: relative; font-size: 12px; color: var(--text2); }
+  .tl-chain-event::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); position: absolute; left: -21px; top: 12px; }
+
+  /* ── Invariant cards ── */
+  .invariant-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .invariant-card .article-badge { display: inline-block; padding: 2px 8px; background: var(--accent); color: #fff; border-radius: 3px; font-size: 11px; font-weight: 700; margin-bottom: 8px; }
+  .invariant-card .inv-text { color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+  .invariant-card .enforcement { color: var(--text3); font-size: 12px; font-style: italic; }
+
+  /* ── Chain status badges (timeline tab) ── */
+  .chain-status-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .chain-status-badge.pending { background: var(--amber-dim); color: var(--amber); }
+  .chain-status-badge.approved, .chain-status-badge.completed { background: var(--green-dim); color: var(--green); }
+  .chain-status-badge.denied { background: var(--red-dim); color: var(--red); }
+  .chain-status-badge.escalated { background: var(--amber-dim); color: var(--amber); }
+  .chain-status-badge.timed_out { background: rgba(255,136,0,0.12); color: #ff8800; }
+
+  /* ── Summary cards ── */
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; text-align: center; }
+  .summary-card .value { font-size: 32px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+  .summary-card .label { font-size: 11px; color: var(--text3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* ── Compliance modal ── */
+  .compliance-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; }
+  .compliance-modal-overlay.active { display: flex; }
+  .compliance-modal { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .compliance-modal h3 { color: var(--accent); margin-bottom: 16px; font-size: 16px; }
+  .compliance-modal-close { float: right; background: none; border: none; color: var(--text3); font-size: 20px; cursor: pointer; }
+  .compliance-modal-close:hover { color: var(--text); }
+  .annex-section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 8px; }
+  .annex-section h4 { color: var(--accent); font-size: 13px; margin-bottom: 6px; }
+  .annex-section p, .annex-section li { color: var(--text2); font-size: 12px; line-height: 1.5; }
+
+  /* ── Buttons ── */
+  .btn { padding: 6px 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn:hover { background: var(--surface2); color: var(--text); }
+  .btn-primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-border); font-weight: 600; }
+  .btn-primary:hover { background: var(--accent); color: #fff; }
+  .btn-danger { background: var(--red-dim); color: var(--red); border-color: var(--red-border); }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+  .btn-sm { padding: 3px 8px; font-size: 10px; }
+
+  /* ── Inline form ── */
+  .inline-form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .inline-form .form-group { margin-bottom: 10px; }
+  .inline-form label { display: block; color: var(--text3); font-size: 11px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .inline-form input, .inline-form textarea, .inline-form select { width: 100%; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 12px; }
+  .inline-form input:focus, .inline-form textarea:focus, .inline-form select:focus { outline: none; border-color: var(--accent); }
+  .inline-form textarea { resize: vertical; min-height: 50px; }
+
+  /* ── Incident counter in top bar ── */
+  .incident-counter { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 3px 8px; border-radius: 3px; background: var(--surface2); color: var(--text3); }
+  .incident-counter.has-overdue { background: var(--red-dim); color: var(--red); font-weight: 600; }
+
+  /* ── Tab panel inner padding ── */
+  .tab-panel-inner { padding: 20px; max-width: 1400px; }
+  .tab-panel-inner h2 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
+
+  /* ── Article group heading ── */
+  .article-group-heading { color: var(--accent); margin: 24px 0 12px; font-size: 14px; font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .article-group-heading:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -189,6 +300,7 @@
     <div class="stat"><div class="stat-val accent" id="stat-chains">0</div><div class="stat-label">Chains</div></div>
     <div class="stat"><div class="stat-val" id="stat-gates">0</div><div class="stat-label">Gate Checks</div></div>
     <div class="stat"><div class="stat-val red" id="stat-denials">0</div><div class="stat-label">Denials</div></div>
+    <span class="incident-counter" id="incident-counter">0 incidents</span>
     <div class="conn conn-dead" id="conn-indicator">
       <div class="conn-dot"></div>
       <span id="conn-text">Connecting...</span>
@@ -196,6 +308,16 @@
   </div>
 </div>
 
+<div class="tab-bar">
+  <button class="tab active" data-tab="operations" onclick="switchTab('operations')">Operations</button>
+  <button class="tab" data-tab="agents" onclick="switchTab('agents')">Agents &amp; Enrollment</button>
+  <button class="tab" data-tab="timeline" onclick="switchTab('timeline')">Governance Timeline</button>
+  <button class="tab" data-tab="incidents" onclick="switchTab('incidents')">Incidents</button>
+  <button class="tab" data-tab="compliance" onclick="switchTab('compliance')">Compliance</button>
+  <button class="tab" data-tab="constitution" onclick="switchTab('constitution')">Constitution</button>
+</div>
+
+<div class="tab-content active" id="tab-operations">
 <div class="grid">
   <!-- Panel 1: Agent Roster -->
   <div class="panel">
@@ -258,6 +380,107 @@
     <div class="panel-body" id="kill-panel">
       <div class="empty-state">No agents to manage</div>
     </div>
+  </div>
+</div>
+
+</div><!-- /tab-operations -->
+
+<!-- Tab 2: Agents & Enrollment -->
+<div class="tab-content" id="tab-agents">
+  <div class="tab-panel-inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">Agents &amp; Enrollment</h2>
+      <button class="btn" onclick="loadAgentsTab()">Refresh</button>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:30px"></th>
+          <th>Agent ID</th>
+          <th>Display Name</th>
+          <th>Type</th>
+          <th>Tier</th>
+          <th>Trust Score</th>
+          <th>DID</th>
+          <th>Enrollment</th>
+          <th>Owner</th>
+        </tr>
+      </thead>
+      <tbody id="agents-tab-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Tab 3: Governance Timeline -->
+<div class="tab-content" id="tab-timeline">
+  <div class="tab-panel-inner">
+    <h2>Governance Timeline</h2>
+    <div id="timeline-container"><p style="color:var(--text3);font-style:italic">No governance chains yet.</p></div>
+  </div>
+</div>
+
+<!-- Tab 4: Incidents -->
+<div class="tab-content" id="tab-incidents">
+  <div class="tab-panel-inner">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">Incidents</h2>
+      <button class="btn btn-primary" onclick="toggleIncidentForm()">Create Incident</button>
+    </div>
+    <div id="inc-form" style="display:none" class="inline-form">
+      <div class="form-group">
+        <label>Agent ID</label>
+        <input id="inc-agent" placeholder="e.g. agent-001">
+      </div>
+      <div class="form-group">
+        <label>Title</label>
+        <input id="inc-title" placeholder="Incident title">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="inc-desc" placeholder="Describe the incident..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Severity</label>
+        <select id="inc-severity">
+          <option value="">Auto-classify</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="SERIOUS">Serious</option>
+          <option value="STANDARD">Standard</option>
+          <option value="MINOR">Minor</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="createIncident()">Submit</button>
+        <button class="btn" onclick="toggleIncidentForm()">Cancel</button>
+      </div>
+    </div>
+    <div id="incidents-container"><p style="color:var(--text3);font-style:italic">Loading incidents...</p></div>
+  </div>
+</div>
+
+<!-- Tab 5: Compliance -->
+<div class="tab-content" id="tab-compliance">
+  <div class="tab-panel-inner">
+    <h2>Compliance Overview</h2>
+    <div id="compliance-container"><p style="color:var(--text3);font-style:italic">Loading compliance data...</p></div>
+    <div id="compliance-agents-list"></div>
+  </div>
+</div>
+
+<!-- Tab 6: Constitution -->
+<div class="tab-content" id="tab-constitution">
+  <div class="tab-panel-inner">
+    <h2>Constitutional Invariants</h2>
+    <div id="constitution-container"><p style="color:var(--text3);font-style:italic">Loading constitution...</p></div>
+  </div>
+</div>
+
+<!-- Compliance Annex IV Modal -->
+<div class="compliance-modal-overlay" id="annex-modal">
+  <div class="compliance-modal">
+    <button class="compliance-modal-close" onclick="closeAnnexModal()">&times;</button>
+    <h3 id="annex-modal-title">Annex IV Documentation</h3>
+    <div id="annex-modal-body"></div>
   </div>
 </div>
 
@@ -394,6 +617,7 @@ function connect() {
     'agent_dead', 'agent_promoted', 'agent_demoted', 'agent_status_change',
     'escalation', 'action', 'gate_check', 'action_reported',
     'agent_enrolled', 'enrollment_failed',
+    'incident_created', 'incident_reported', 'incident_resolved',
   ];
 
   eventTypes.forEach(type => {
@@ -452,6 +676,12 @@ function handleEvent(data) {
     if (entry.decision === 'deny') state.denyCount++;
     state.gateChecks.unshift(entry);
     if (state.gateChecks.length > 200) state.gateChecks.pop();
+  }
+
+  // ── Incident events ──
+  if (['incident_created', 'incident_reported', 'incident_resolved'].includes(data.event_type)) {
+    updateIncidentCounter();
+    if (document.getElementById('tab-incidents').classList.contains('active')) loadIncidentsTab();
   }
 
   // ── Chain state ──
@@ -936,6 +1166,338 @@ async function submitEnrollment() {
   }
 }
 
+// =================================================================
+// Tab Navigation
+// =================================================================
+function switchTab(tabName) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+  document.getElementById(`tab-${tabName}`).classList.add('active');
+  if (tabName === 'agents') loadAgentsTab();
+  else if (tabName === 'timeline') loadTimelineTab();
+  else if (tabName === 'incidents') loadIncidentsTab();
+  else if (tabName === 'compliance') loadComplianceTab();
+  else if (tabName === 'constitution') loadConstitutionTab();
+}
+
+// =================================================================
+// Tab 2: Agents & Enrollment
+// =================================================================
+async function loadAgentsTab() {
+  try {
+    const [agentsRes, enrollRes] = await Promise.all([
+      fetch('/agents').then(r => r.json()),
+      fetch('/agents/enrollments').then(r => r.json()),
+    ]);
+    const enrollMap = {};
+    enrollRes.forEach(e => { enrollMap[e.agent_id] = e; });
+    const tbody = document.getElementById('agents-tab-tbody');
+    tbody.innerHTML = agentsRes.map(a => {
+      const e = enrollMap[a.agent_id] || {};
+      const trustPct = Math.min(100, ((a.trust_score || 500) / 1000 * 100)).toFixed(0);
+      const trustColor = (a.trust_score || 500) >= 700 ? 'var(--green)' : (a.trust_score || 500) >= 400 ? 'var(--amber)' : 'var(--red)';
+      const statusClass = (a.status || 'idle').toLowerCase();
+      const enrollStatus = e.status || 'N/A';
+      const enrollClass = enrollStatus.toLowerCase();
+      return `<tr>
+        <td><span class="status-dot ${statusClass}"></span></td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${esc(a.agent_id)}</td>
+        <td>${esc(a.display_name || '')}</td>
+        <td><span class="chip chip-cyan">${esc(a.agent_type || 'unknown')}</span></td>
+        <td><span class="chip chip-accent">${TIER_NAMES[a.autonomy_tier] || 'T' + (a.autonomy_tier || 0)}</span></td>
+        <td><div class="trust-bar"><div class="trust-bar-fill" style="width:${trustPct}%;background:${trustColor}"></div></div> ${a.trust_score || '?'}</td>
+        <td title="${esc(a.did || '')}" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3)">${esc((a.did || '').slice(0, 20))}${(a.did || '').length > 20 ? '...' : ''}</td>
+        <td><span class="severity-badge severity-${enrollClass}">${esc(enrollStatus)}</span></td>
+        <td style="font-size:11px;color:var(--text2)">${esc(e.application?.owner || e.owner || 'N/A')}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    document.getElementById('agents-tab-tbody').innerHTML = `<tr><td colspan="9" style="color:var(--red);text-align:center;padding:20px">Failed to load agents: ${esc(err.message)}</td></tr>`;
+  }
+}
+
+// =================================================================
+// Tab 3: Governance Timeline
+// =================================================================
+async function loadTimelineTab() {
+  const container = document.getElementById('timeline-container');
+  const chainIds = Object.keys(state.chains);
+  if (chainIds.length === 0) {
+    container.innerHTML = '<p style="color:var(--text3);font-style:italic">No governance chains yet. Chains will appear here as agents request governed actions.</p>';
+    return;
+  }
+  let html = '';
+  for (const cid of chainIds.slice(0, 50)) {
+    const chain = state.chains[cid];
+    const statusClass = (chain?.status || 'PENDING').toLowerCase().replace(' ', '_');
+    html += `<div class="tl-chain-item" onclick="toggleTimelineChainDetail('${esc(cid)}')">
+      <span class="chain-status-badge ${statusClass}">${esc(chain?.status || 'PENDING')}</span>
+      <strong style="color:var(--text);margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:12px">${esc(cid)}</strong>
+      ${chain?.tool ? `<span class="chip chip-cyan" style="margin-left:8px">${esc(chain.tool)}</span>` : ''}
+      ${chain?.agent_id ? `<span style="color:var(--text3);font-size:11px;margin-left:8px">${esc(chain.agent_id)}</span>` : ''}
+      <span style="color:var(--text3);float:right;font-size:11px">${chain?.event_count || '?'} events</span>
+    </div>
+    <div id="tl-chain-detail-${cid}" style="display:none" class="tl-chain-events"></div>`;
+  }
+  container.innerHTML = html;
+}
+
+async function toggleTimelineChainDetail(chainId) {
+  const el = document.getElementById(`tl-chain-detail-${chainId}`);
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:var(--text3);font-size:11px">Loading...</span>';
+  try {
+    const chain = await fetch(`/chain/${chainId}`).then(r => r.json());
+    const events = chain.events || [];
+    if (events.length === 0) {
+      el.innerHTML = '<span style="color:var(--text3);font-size:11px">No events in this chain.</span>';
+      return;
+    }
+    el.innerHTML = events.map(e => `<div class="tl-chain-event">
+      <strong style="color:var(--accent)">${esc(e.event_type)}</strong>
+      <span style="color:var(--text2);margin-left:8px">${esc(e.actor_id || '')}</span>
+      <span style="color:var(--text3);margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:10px">${(e.event_hash || '').slice(0, 12)}${e.event_hash ? '...' : ''}</span>
+      <div style="color:var(--text3);font-size:11px;margin-top:2px">${new Date(e.timestamp).toLocaleString()}</div>
+    </div>`).join('');
+  } catch (err) {
+    el.innerHTML = `<span style="color:var(--red);font-size:11px">Failed to load chain details</span>`;
+  }
+}
+
+// =================================================================
+// Tab 4: Incidents
+// =================================================================
+async function loadIncidentsTab() {
+  const container = document.getElementById('incidents-container');
+  try {
+    const incidents = await fetch('/api/v1/incidents').then(r => r.json());
+    if (!incidents || incidents.length === 0) {
+      container.innerHTML = '<p style="color:var(--text3);font-style:italic">No incidents recorded.</p>';
+      return;
+    }
+    const statusOrder = { OPEN: 0, INVESTIGATING: 1, REPORTED: 2, RESOLVED: 3, CLOSED: 4 };
+    const sevOrder = { CRITICAL: 0, SERIOUS: 1, STANDARD: 2, MINOR: 3 };
+    incidents.sort((a, b) => (statusOrder[a.status] || 0) - (statusOrder[b.status] || 0) || (sevOrder[a.severity] || 0) - (sevOrder[b.severity] || 0));
+
+    container.innerHTML = incidents.map(i => {
+      const isOverdue = i.is_overdue;
+      const deadlineStr = i.deadline ? `${Number(i.days_remaining).toFixed(1)} days remaining` : 'No deadline';
+      const sevClass = (i.severity || 'standard').toLowerCase();
+      return `<div class="incident-card ${isOverdue ? 'overdue' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div>
+            <span class="severity-badge severity-${sevClass}">${esc(i.severity)}</span>
+            <span class="chip chip-${STATUS_COLORS[i.status] || 'amber'}" style="margin-left:4px">${esc(i.status)}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text3);font-family:'JetBrains Mono',monospace">${esc(i.incident_id)}</div>
+        </div>
+        <div style="color:var(--text);font-weight:600;margin-bottom:4px">${esc(i.title)}</div>
+        <div style="color:var(--text2);font-size:12px;margin-bottom:8px">${esc(i.description || '')}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-size:11px;color:var(--text3)">
+            Agent: <span style="font-family:'JetBrains Mono',monospace">${esc(i.agent_id)}</span>
+            &nbsp;|&nbsp; Detected: ${new Date(i.detected_at).toLocaleString()}
+            ${i.deadline ? ` &nbsp;|&nbsp; <span style="color:${isOverdue ? 'var(--red)' : 'var(--amber)'}">${deadlineStr}</span>` : ''}
+          </div>
+          <div style="display:flex;gap:4px">
+            ${i.status === 'OPEN' || i.status === 'open' ? `<button class="btn btn-sm" onclick="markIncidentReported('${esc(i.incident_id)}')">Mark Reported</button>` : ''}
+            ${i.status !== 'RESOLVED' && i.status !== 'resolved' && i.status !== 'CLOSED' && i.status !== 'closed' ? `<button class="btn btn-sm" onclick="markIncidentResolved('${esc(i.incident_id)}')">Resolve</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--red)">Failed to load incidents: ${esc(err.message)}</p>`;
+  }
+}
+
+function toggleIncidentForm() {
+  const form = document.getElementById('inc-form');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function createIncident() {
+  const agentId = document.getElementById('inc-agent').value;
+  const title = document.getElementById('inc-title').value;
+  const desc = document.getElementById('inc-desc').value;
+  const severity = document.getElementById('inc-severity').value || undefined;
+  if (!agentId || !title) { alert('Agent ID and Title are required'); return; }
+  try {
+    await fetch('/api/v1/incidents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agentId, title, description: desc, severity }),
+    });
+    document.getElementById('inc-form').style.display = 'none';
+    document.getElementById('inc-agent').value = '';
+    document.getElementById('inc-title').value = '';
+    document.getElementById('inc-desc').value = '';
+    document.getElementById('inc-severity').value = '';
+    loadIncidentsTab();
+  } catch (err) {
+    alert('Failed to create incident: ' + err.message);
+  }
+}
+
+async function markIncidentReported(id) {
+  await fetch(`/api/v1/incidents/${id}/report`, { method: 'PATCH' });
+  loadIncidentsTab();
+}
+
+async function markIncidentResolved(id) {
+  await fetch(`/api/v1/incidents/${id}/resolve`, { method: 'PATCH' });
+  loadIncidentsTab();
+}
+
+// =================================================================
+// Tab 5: Compliance
+// =================================================================
+async function loadComplianceTab() {
+  const container = document.getElementById('compliance-container');
+  const agentsList = document.getElementById('compliance-agents-list');
+  try {
+    const status = await fetch('/api/v1/compliance/status').then(r => r.json());
+
+    let sevBars = '';
+    for (const [sev, count] of Object.entries(status.incidents_by_severity || {})) {
+      const color = { critical: 'var(--red)', serious: 'var(--amber)', standard: '#fdcb6e', minor: 'var(--text3)' }[sev.toLowerCase()] || 'var(--text3)';
+      sevBars += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="width:80px;font-size:11px;color:var(--text2);text-transform:uppercase">${esc(sev)}</span>
+        <div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden">
+          <div style="width:${Math.min(count * 20, 100)}%;height:100%;background:${color};border-radius:4px"></div>
+        </div>
+        <span style="font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace">${count}</span>
+      </div>`;
+    }
+
+    container.innerHTML = `
+      <div class="summary-cards">
+        <div class="summary-card"><div class="value">${status.total_agents || 0}</div><div class="label">Total Agents</div></div>
+        <div class="summary-card"><div class="value">${status.enrolled_agents || 0}</div><div class="label">Enrolled</div></div>
+        <div class="summary-card"><div class="value">${status.total_incidents || 0}</div><div class="label">Incidents</div></div>
+        <div class="summary-card"><div class="value" style="color:${(status.overdue_incidents || 0) > 0 ? 'var(--red)' : 'var(--green)'}">${status.overdue_incidents || 0}</div><div class="label">Overdue</div></div>
+        <div class="summary-card"><div class="value">${status.total_chains || 0}</div><div class="label">Chains</div></div>
+        <div class="summary-card"><div class="value">${status.completed_chains || 0}</div><div class="label">Completed</div></div>
+      </div>
+      ${sevBars ? `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:24px">
+        <h3 style="color:var(--text);font-size:13px;margin-bottom:12px;font-weight:600">Incidents by Severity</h3>${sevBars}</div>` : ''}
+    `;
+
+    // Show Annex IV buttons for enrolled agents
+    const enrolledAgents = (status.enrolled_agent_ids || []);
+    if (enrolledAgents.length > 0) {
+      agentsList.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px">
+        <h3 style="color:var(--text);font-size:13px;margin-bottom:12px;font-weight:600">Generate Annex IV Documentation</h3>
+        ${enrolledAgents.map(aid => `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text)">${esc(aid)}</span>
+          <button class="btn btn-sm btn-primary" onclick="generateAnnexIV('${esc(aid)}')">Generate Annex IV</button>
+        </div>`).join('')}
+      </div>`;
+    } else {
+      agentsList.innerHTML = '';
+    }
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--red)">Failed to load compliance data: ${esc(err.message)}</p>`;
+  }
+}
+
+async function generateAnnexIV(agentId) {
+  const modal = document.getElementById('annex-modal');
+  const body = document.getElementById('annex-modal-body');
+  const title = document.getElementById('annex-modal-title');
+  title.textContent = `Annex IV - ${agentId}`;
+  body.innerHTML = '<p style="color:var(--text3)">Loading documentation...</p>';
+  modal.classList.add('active');
+  try {
+    const data = await fetch(`/api/v1/agents/${agentId}/compliance/annex-iv`).then(r => r.json());
+    const sections = data.sections || data;
+    if (Array.isArray(sections)) {
+      body.innerHTML = sections.map(s => `<div class="annex-section">
+        <h4>${esc(s.title || s.section || 'Section')}</h4>
+        <p>${esc(s.content || s.text || JSON.stringify(s))}</p>
+      </div>`).join('');
+    } else if (typeof sections === 'object') {
+      body.innerHTML = Object.entries(sections).map(([key, val]) => `<div class="annex-section">
+        <h4>${esc(key)}</h4>
+        <p>${typeof val === 'string' ? esc(val) : esc(JSON.stringify(val, null, 2))}</p>
+      </div>`).join('');
+    } else {
+      body.innerHTML = `<pre style="color:var(--text);font-size:12px;white-space:pre-wrap">${esc(JSON.stringify(data, null, 2))}</pre>`;
+    }
+  } catch (err) {
+    body.innerHTML = `<p style="color:var(--red)">Failed to generate Annex IV: ${esc(err.message)}</p>`;
+  }
+}
+
+function closeAnnexModal() {
+  document.getElementById('annex-modal').classList.remove('active');
+}
+
+// =================================================================
+// Tab 6: Constitution
+// =================================================================
+async function loadConstitutionTab() {
+  const container = document.getElementById('constitution-container');
+  try {
+    const data = await fetch('/constitution').then(r => r.json());
+    const invariants = data.invariants || data;
+    const items = Array.isArray(invariants) ? invariants : Object.values(invariants);
+
+    const groupNames = {
+      'I': 'Article I: Immutability',
+      'I.2': 'Article I.2: Authority',
+      'II': 'Article II: Operational',
+      'III': 'Article III: Separation of Powers',
+      'IV': 'Article IV: Human Override',
+      'V': 'Article V: Prohibited Practices',
+    };
+
+    const groups = {};
+    items.forEach(inv => {
+      const key = inv.article || inv.article_class || 'Other';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(inv);
+    });
+
+    let html = '';
+    for (const [key, invs] of Object.entries(groups)) {
+      html += `<h3 class="article-group-heading">${esc(groupNames[key] || key)}</h3>`;
+      invs.forEach(inv => {
+        html += `<div class="invariant-card">
+          <span class="article-badge">${esc(inv.id || inv.article_id || key)}</span>
+          <div class="inv-text">${esc(inv.text)}</div>
+          <div class="enforcement">Enforcement: ${esc(inv.enforcement)}</div>
+        </div>`;
+      });
+    }
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--red)">Failed to load constitution: ${esc(err.message)}</p>`;
+  }
+}
+
+// =================================================================
+// Incident counter (top bar)
+// =================================================================
+async function updateIncidentCounter() {
+  try {
+    const incidents = await fetch('/api/v1/incidents').then(r => r.json());
+    const el = document.getElementById('incident-counter');
+    const total = incidents.length;
+    const overdue = incidents.filter(i => i.is_overdue).length;
+    if (overdue > 0) {
+      el.textContent = `${overdue} overdue / ${total} incidents`;
+      el.classList.add('has-overdue');
+    } else {
+      el.textContent = `${total} incidents`;
+      el.classList.remove('has-overdue');
+    }
+  } catch (e) {}
+}
+
 // Check enrollment status for all agents periodically
 async function checkEnrollments() {
   try {
@@ -949,6 +1511,9 @@ setInterval(checkEnrollments, 10000);
 // Boot
 loadInitialState();
 connect();
+updateIncidentCounter();
+// Refresh incident counter every 30s
+setInterval(updateIncidentCounter, 30000);
 </script>
 </body>
 </html>
