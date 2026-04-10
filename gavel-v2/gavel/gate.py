@@ -21,10 +21,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from .agents import AgentRegistry, AgentStatus
+from .enrollment import TokenManager, GovernanceToken
 from .chain import GovernanceChain, ChainStatus, EventType
 from .events import EventBus, DashboardEvent
 from .hooks import classify_risk, should_govern
@@ -41,6 +42,8 @@ chains: Optional[dict[str, GovernanceChain]] = None
 liveness: Optional[Any] = None
 tier_policy: Optional[TierPolicy] = None
 policy_engine: Optional[Any] = None  # AGT PolicyEngine instance
+token_manager: Optional[TokenManager] = None
+chain_locks: Optional[Any] = None  # ChainLockManager from gateway.py
 
 
 def init_gate(
@@ -50,15 +53,52 @@ def init_gate(
     liveness_monitor: Any,
     policy: TierPolicy | None = None,
     cedar_engine: Any | None = None,
+    tokens: TokenManager | None = None,
+    lock_manager: Any | None = None,
 ) -> None:
     """Wire shared state from gateway.py into this module."""
-    global agent_registry, event_bus, chains, liveness, tier_policy, policy_engine
+    global agent_registry, event_bus, chains, liveness, tier_policy, policy_engine, token_manager, chain_locks
     agent_registry = registry
     event_bus = bus
     chains = chain_store
     liveness = liveness_monitor
     tier_policy = policy or TierPolicy()
     policy_engine = cedar_engine
+    token_manager = tokens
+    chain_locks = lock_manager
+
+
+async def require_gavel_token(
+    x_gavel_token: Optional[str] = Header(default=None),
+) -> GovernanceToken:
+    """FastAPI dependency that validates the X-Gavel-Token header.
+
+    Raises 401 if the header is missing, 403 if the token is invalid/expired/revoked.
+    """
+    if x_gavel_token is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"error": "missing_token", "detail": "X-Gavel-Token header is required"},
+        )
+
+    if token_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "not_initialized", "detail": "Token manager not available"},
+        )
+
+    valid, reason, gov_token = token_manager.validate(x_gavel_token)
+    if not valid:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "token_invalid",
+                "detail": reason,
+                "agent_did": gov_token.agent_did if gov_token else None,
+            },
+        )
+
+    return gov_token
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +241,10 @@ router = APIRouter(tags=["gate"])
 
 
 @router.post("/gate", response_model=GateResponse)
-async def gate(req: GateRequest) -> GateResponse:
+async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_token)) -> GateResponse:
     """Central enforcement gate for every tool invocation.
+
+    Requires a valid X-Gavel-Token header (issued at enrollment).
 
     Fast path: low-risk actions are allowed immediately.
     Slow path: high-risk actions create a governance chain and return
@@ -269,19 +311,20 @@ async def gate(req: GateRequest) -> GateResponse:
 
     # 9. High risk — create governance chain
     chain = GovernanceChain()
-    chain.append(
-        event_type=EventType.INBOUND_INTENT,
-        actor_id=req.agent_id,
-        role_used="proposer",
-        payload={
-            "tool_name": req.tool_name,
-            "tool_input": req.tool_input,
-            "risk": round(risk, 3),
-            "session_id": req.session_id,
-        },
-    )
-    chain.status = ChainStatus.ESCALATED
-    chains[chain.chain_id] = chain
+    async with chain_locks.lock(chain.chain_id):
+        chain.append(
+            event_type=EventType.INBOUND_INTENT,
+            actor_id=req.agent_id,
+            role_used="proposer",
+            payload={
+                "tool_name": req.tool_name,
+                "tool_input": req.tool_input,
+                "risk": round(risk, 3),
+                "session_id": req.session_id,
+            },
+        )
+        chain.status = ChainStatus.ESCALATED
+        chains[chain.chain_id] = chain
 
     # Start SLA timer if liveness monitor is available
     sla_seconds = tier_reqs.sla_seconds

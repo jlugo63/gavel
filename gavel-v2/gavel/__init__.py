@@ -15,6 +15,15 @@ from gavel.blastbox import BlastBox, EvidencePacket
 from gavel.evidence import EvidenceReviewer, ReviewResult
 from gavel.tiers import TierPolicy, AutonomyTier
 from gavel.liveness import LivenessMonitor, EscalationTimeout
+from gavel.compliance import (
+    AnnexIVGenerator,
+    ComplianceStatus,
+    IncidentSeverity,
+    IncidentStatus,
+    IncidentReport,
+    IncidentClassifier,
+    IncidentRegistry,
+)
 
 __all__ = [
     "GovernanceChain",
@@ -30,4 +39,11 @@ __all__ = [
     "AutonomyTier",
     "LivenessMonitor",
     "EscalationTimeout",
+    "AnnexIVGenerator",
+    "ComplianceStatus",
+    "IncidentSeverity",
+    "IncidentStatus",
+    "IncidentReport",
+    "IncidentClassifier",
+    "IncidentRegistry",
 ]

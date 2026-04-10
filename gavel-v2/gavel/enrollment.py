@@ -45,6 +45,20 @@ class EnrollmentStatus(str, Enum):
     SUSPENDED = "SUSPENDED"          # Previously enrolled, now suspended
 
 
+class HighRiskCategory(str, Enum):
+    """EU AI Act Annex III high-risk AI system categories."""
+    NONE = "none"
+    BIOMETRICS = "biometrics"
+    CRITICAL_INFRASTRUCTURE = "critical_infrastructure"
+    EDUCATION = "education"
+    EMPLOYMENT = "employment"
+    ESSENTIAL_SERVICES = "essential_services"
+    LAW_ENFORCEMENT = "law_enforcement"
+    MIGRATION = "migration"
+    JUSTICE = "justice"
+    PROHIBITED = "prohibited"  # Article 5 — must be rejected
+
+
 # ── ATF Requirement Models ─────────────────────────────────────
 
 class PurposeDeclaration(BaseModel):
@@ -145,6 +159,11 @@ class EnrollmentApplication(BaseModel):
     boundaries: ActionBoundaries
     fallback: FallbackBehavior = Field(default_factory=FallbackBehavior)
 
+    # EU AI Act compliance
+    high_risk_category: HighRiskCategory = HighRiskCategory.NONE
+    interaction_type: str = "system_only"  # "human_facing", "system_only", "mixed"
+    synthetic_content: bool = False  # whether agent generates synthetic content
+
 
 class EnrollmentRecord(BaseModel):
     """Stored enrollment state for an agent."""
@@ -156,6 +175,80 @@ class EnrollmentRecord(BaseModel):
     reviewed_by: Optional[str] = None
     rejection_reason: Optional[str] = None
     violations: list[str] = Field(default_factory=list)  # Validation failures
+
+
+# ── EU AI Act Risk Classification ─────────────────────────────
+
+# Keywords that trigger high-risk classification
+_RISK_CATEGORY_KEYWORDS: dict[HighRiskCategory, list[str]] = {
+    HighRiskCategory.BIOMETRICS: ["biometric", "facial recognition", "fingerprint", "emotion recognition", "voice identification"],
+    HighRiskCategory.CRITICAL_INFRASTRUCTURE: ["power grid", "water supply", "traffic control", "energy management", "digital infrastructure", "telecom"],
+    HighRiskCategory.EDUCATION: ["student assessment", "exam scoring", "admission", "learning evaluation", "academic grading"],
+    HighRiskCategory.EMPLOYMENT: ["recruitment", "cv screening", "hiring", "performance evaluation", "task allocation", "termination decision", "promotion decision"],
+    HighRiskCategory.ESSENTIAL_SERVICES: ["credit scoring", "insurance risk", "social benefit", "healthcare triage", "emergency dispatch", "loan assessment"],
+    HighRiskCategory.LAW_ENFORCEMENT: ["crime prediction", "risk assessment law", "evidence reliability", "polygraph", "profiling"],
+    HighRiskCategory.MIGRATION: ["visa processing", "asylum", "border control", "immigration risk", "document authenticity"],
+    HighRiskCategory.JUSTICE: ["sentencing", "court analysis", "dispute resolution", "judicial", "parole decision"],
+}
+
+_PROHIBITED_KEYWORDS: list[str] = [
+    "social scoring", "social credit",
+    "subliminal manipulation", "subliminal technique",
+    "exploit vulnerability", "exploit disabled", "exploit elderly", "exploit minor",
+    "real-time biometric identification", "mass surveillance",
+    "predictive policing individual",
+    "emotion recognition workplace", "emotion recognition education",
+]
+
+
+def classify_risk_category(purpose: PurposeDeclaration, capabilities: CapabilityManifest) -> HighRiskCategory:
+    """Auto-classify agent into EU AI Act Annex III risk category."""
+    text = f"{purpose.summary} {purpose.operational_scope}".lower()
+
+    # Check prohibited first
+    for keyword in _PROHIBITED_KEYWORDS:
+        if keyword in text:
+            return HighRiskCategory.PROHIBITED
+
+    # Check high-risk categories
+    for category, keywords in _RISK_CATEGORY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in text:
+                return category
+
+    return HighRiskCategory.NONE
+
+
+def detect_prohibited_practices(app: "EnrollmentApplication") -> list[str]:
+    """Detect EU AI Act Article 5 prohibited practices in an enrollment application."""
+    violations = []
+    text = f"{app.purpose.summary} {app.purpose.operational_scope} {app.display_name}".lower()
+
+    if any(k in text for k in ["social scoring", "social credit"]):
+        violations.append("Art. 5(1)(c): Social scoring by public authorities or on their behalf")
+
+    if any(k in text for k in ["subliminal manipulation", "subliminal technique"]):
+        violations.append("Art. 5(1)(a): Subliminal techniques to materially distort behavior")
+
+    if any(k in text for k in ["exploit vulnerability", "exploit disabled", "exploit elderly", "exploit minor"]):
+        violations.append("Art. 5(1)(b): Exploiting vulnerabilities of specific groups (age, disability)")
+
+    if any(k in text for k in ["real-time biometric identification", "mass surveillance"]):
+        violations.append("Art. 5(1)(d): Real-time remote biometric identification in public spaces")
+
+    if "predictive policing individual" in text:
+        violations.append("Art. 5(1)(d): Individual predictive policing based solely on profiling")
+
+    if any(k in text for k in ["emotion recognition workplace", "emotion recognition education"]):
+        violations.append("Art. 5(1)(f): Emotion recognition in workplace or education institutions")
+
+    # Check capabilities for biometric indicators
+    tools_text = " ".join(app.capabilities.tools).lower()
+    if any(k in tools_text for k in ["facial_recognition", "biometric_scan", "emotion_detect"]):
+        if "biometric" not in app.purpose.operational_scope.lower():
+            violations.append("Art. 5: Biometric capabilities declared without biometric purpose declaration")
+
+    return violations
 
 
 # ── Enrollment Validator ───────────────────────────────────────
@@ -209,6 +302,25 @@ class EnrollmentValidator:
 
         if app.capabilities.can_spawn_subagents and app.purpose.risk_tier == "low":
             violations.append("Cross-check: subagent spawning incompatible with 'low' risk tier")
+
+        # EU AI Act: Risk category classification
+        detected_category = classify_risk_category(app.purpose, app.capabilities)
+        if detected_category == HighRiskCategory.PROHIBITED:
+            violations.append("EU AI Act Art. 5: Application describes a prohibited AI practice")
+
+        if app.high_risk_category == HighRiskCategory.NONE and detected_category != HighRiskCategory.NONE:
+            violations.append(f"EU AI Act Art. 6: Agent auto-classified as high-risk ({detected_category.value}) but declared as none")
+
+        # EU AI Act: Prohibited practice detection
+        prohibited = detect_prohibited_practices(app)
+        violations.extend(prohibited)
+
+        # EU AI Act: High-risk agents need stricter requirements
+        if app.high_risk_category != HighRiskCategory.NONE or detected_category != HighRiskCategory.NONE:
+            if app.purpose.risk_tier not in ("high", "critical"):
+                violations.append("EU AI Act: High-risk category agents must declare risk_tier as 'high' or 'critical'")
+            if not app.owner_contact:
+                violations.append("EU AI Act Art. 26: High-risk system deployers must provide contact information")
 
         passed = len(violations) == 0
         return passed, violations
