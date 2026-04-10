@@ -24,6 +24,15 @@ from gavel.compliance import (
     IncidentClassifier,
     IncidentRegistry,
 )
+from gavel.artifact import (
+    GovernanceArtifact,
+    PolicyDecisionAdapter,
+    Principal,
+    ArtifactEvent,
+    EvidenceSummary,
+    from_chain,
+    verify_artifact,
+)
 
 __all__ = [
     "GovernanceChain",
@@ -46,4 +55,11 @@ __all__ = [
     "IncidentReport",
     "IncidentClassifier",
     "IncidentRegistry",
+    "GovernanceArtifact",
+    "PolicyDecisionAdapter",
+    "Principal",
+    "ArtifactEvent",
+    "EvidenceSummary",
+    "from_chain",
+    "verify_artifact",
 ]
