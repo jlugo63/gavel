@@ -82,21 +82,44 @@ class TestGovernanceArtifactSchema:
         artifact = _make_artifact()
         assert artifact.chain_id == "gc-test-001"
 
-    def test_verdict_allow(self) -> None:
+    def test_action_allow(self) -> None:
         artifact = _make_artifact("APPROVED")
-        assert artifact.verdict == "allow"
+        assert artifact.action == "allow"
+        assert artifact.allowed is True
 
-    def test_verdict_deny(self) -> None:
+    def test_action_deny(self) -> None:
         artifact = _make_artifact("DENIED")
-        assert artifact.verdict == "deny"
+        assert artifact.action == "deny"
+        assert artifact.allowed is False
 
-    def test_verdict_escalate(self) -> None:
+    def test_action_require_approval(self) -> None:
         artifact = _make_artifact("PENDING")
-        assert artifact.verdict == "escalate"
+        assert artifact.action == "require_approval"
+        assert artifact.allowed is False
 
-    def test_verdict_timed_out(self) -> None:
+    def test_action_timed_out(self) -> None:
         artifact = _make_artifact("TIMED_OUT")
-        assert artifact.verdict == "deny"
+        assert artifact.action == "deny"
+        assert artifact.allowed is False
+
+    def test_action_within_agt_literal(self) -> None:
+        """Every possible mapped action must be in AGT's action Literal set."""
+        agt_actions = {"allow", "deny", "warn", "require_approval", "log"}
+        for status in [
+            "APPROVED",
+            "DENIED",
+            "COMPLETED",
+            "TIMED_OUT",
+            "ROLLED_BACK",
+            "PENDING",
+            "EVALUATING",
+            "ESCALATED",
+            "EXECUTING",
+        ]:
+            artifact = _make_artifact(status)
+            assert artifact.action in agt_actions, (
+                f"status={status} produced non-AGT action={artifact.action}"
+            )
 
     def test_principals_extracted(self) -> None:
         artifact = _make_artifact()
@@ -191,30 +214,75 @@ class TestVerifyArtifact:
 
 
 class TestPolicyDecisionAdapter:
-    def test_allow_verdict(self) -> None:
+    def test_allow_action(self) -> None:
         artifact = _make_artifact("APPROVED")
         decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-        assert decision["verdict"] == "allow"
+        assert decision["action"] == "allow"
+        assert decision["allowed"] is True
 
-    def test_deny_verdict(self) -> None:
+    def test_deny_action(self) -> None:
         artifact = _make_artifact("DENIED")
         decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-        assert decision["verdict"] == "deny"
+        assert decision["action"] == "deny"
+        assert decision["allowed"] is False
 
-    def test_escalate_verdict(self) -> None:
+    def test_require_approval_action(self) -> None:
         artifact = _make_artifact("ESCALATED")
         decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-        assert decision["verdict"] == "escalate"
+        assert decision["action"] == "require_approval"
+        assert decision["allowed"] is False
 
-    def test_decision_fields(self) -> None:
+    def test_decision_fields_match_agt(self) -> None:
+        """Decision dict must carry every field AGT's PolicyDecision expects."""
         artifact = _make_artifact()
         decision = PolicyDecisionAdapter.to_policy_decision(artifact)
 
-        assert "verdict" in decision
+        # Required AGT PolicyDecision fields
+        assert "allowed" in decision
+        assert "action" in decision
+        # Optional AGT PolicyDecision fields we populate
         assert "reason" in decision
         assert "matched_rule" in decision
+        assert "policy_name" in decision
         assert "metadata" in decision
+
+        assert isinstance(decision["allowed"], bool)
+        assert decision["action"] in {
+            "allow",
+            "deny",
+            "warn",
+            "require_approval",
+            "log",
+        }
         assert decision["matched_rule"].startswith("article-")
+        assert decision["policy_name"] == "gavel.governance-chain"
+
+    def test_decision_dict_accepted_by_agt_shape(self) -> None:
+        """The dict must be constructable by a PolicyDecision-shaped model.
+
+        AGT's agent-mesh is not a hard runtime dep of this package, so we
+        verify against a minimal local pydantic model that mirrors AGT's
+        real schema field-for-field. If AGT's schema changes, update the
+        mirror here to catch the drift.
+        """
+        from typing import Literal, Optional
+        from pydantic import BaseModel
+
+        class AGTPolicyDecisionMirror(BaseModel):
+            allowed: bool
+            action: Literal["allow", "deny", "warn", "require_approval", "log"]
+            matched_rule: Optional[str] = None
+            policy_name: Optional[str] = None
+            reason: Optional[str] = None
+            metadata: Optional[dict] = None
+
+        for status in ["APPROVED", "DENIED", "ESCALATED", "TIMED_OUT"]:
+            artifact = _make_artifact(status)
+            decision = PolicyDecisionAdapter.to_policy_decision(artifact)
+            # Must construct without ValidationError
+            mirror = AGTPolicyDecisionMirror(**decision)
+            assert mirror.allowed == decision["allowed"]
+            assert mirror.action == decision["action"]
 
     def test_metadata_contents(self) -> None:
         artifact = _make_artifact()

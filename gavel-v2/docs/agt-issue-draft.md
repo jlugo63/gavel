@@ -10,7 +10,7 @@
 
 Governance chains add **tamper-evident, multi-principal decision workflows** on top of AGT's policy evaluation. Where AGT evaluates individual policy decisions, governance chains link those decisions into hash-chained sequences with separation of powers enforcement — the proposer, reviewer, and approver must be distinct principals.
 
-This is implemented in [Gavel](https://github.com/jlugo63/gavel), a constitutional governance framework that already maps its output to AGT's `PolicyDecision` schema (`verdict` / `reason` / `matched_rule` / `metadata`).
+This is implemented in [Gavel](https://github.com/jlugo63/gavel), a constitutional governance framework whose output maps field-for-field to AGT's `agentmesh.governance.policy.PolicyDecision` (`allowed` / `action` / `reason` / `matched_rule` / `policy_name` / `metadata`).
 
 ## What it adds
 
@@ -20,7 +20,7 @@ This is implemented in [Gavel](https://github.com/jlugo63/gavel), a constitution
 | **Separation of powers** | Proposer, reviewer, and approver must be distinct actor IDs. Enforced structurally at chain-append time, not by policy configuration. |
 | **Deterministic evidence review** | Non-LLM review of execution evidence: exit codes, scope compliance, secret detection, risk scoring. No model inference in the verification loop. |
 | **GovernanceArtifact** | Portable, independently verifiable decision records. Any system can verify the artifact with only `hashlib` and `json` — no runtime dependency. |
-| **PolicyDecision mapping** | Native output as AGT `PolicyDecision` with `verdict`/`reason`/`matched_rule`/`metadata`. Drop-in compatible with existing AGT consumers. |
+| **PolicyDecision mapping** | Native output as AGT `PolicyDecision` with `allowed`/`action`/`reason`/`matched_rule`/`policy_name`/`metadata`. Drop-in compatible with existing AGT consumers. |
 | **SLA-based auto-deny** | Chains exceeding review SLA are denied automatically. The system degrades toward safety, never toward inaction. |
 
 ## PolicyDecision integration
@@ -28,14 +28,16 @@ This is implemented in [Gavel](https://github.com/jlugo63/gavel), a constitution
 Gavel's `PolicyDecisionAdapter` maps governance chain outcomes directly to AGT's schema:
 
 ```python
-from gavel.artifact import from_chain, PolicyDecisionAdapter
+from gavel_governance import from_governance_chain, PolicyDecisionAdapter
 
-artifact = from_chain(chain, evidence_result)
+artifact = from_governance_chain(chain_id, status, created_at, events, evidence=ev)
 decision = PolicyDecisionAdapter.to_policy_decision(artifact)
 # {
-#   "verdict": "allow",
+#   "allowed": true,
+#   "action": "allow",
 #   "reason": "Governance chain gc-...: approved by 3 principal(s), evidence review pass, integrity verified",
 #   "matched_rule": "article-III:separation-of-powers",
+#   "policy_name": "gavel.governance-chain",
 #   "metadata": {
 #     "artifact_id": "ga-...",
 #     "chain_id": "gc-...",
@@ -46,6 +48,10 @@ decision = PolicyDecisionAdapter.to_policy_decision(artifact)
 #     "artifact_version": "1.0"
 #   }
 # }
+
+# Construct an AGT PolicyDecision directly (AGT is not a hard dep of this package):
+# from agentmesh.governance.policy import PolicyDecision
+# pd = PolicyDecision(**decision)
 ```
 
 ## How it fits AGT's architecture

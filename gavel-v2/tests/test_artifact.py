@@ -47,7 +47,8 @@ def test_from_chain_basic():
 
     assert artifact.chain_id == chain.chain_id
     assert artifact.status == "APPROVED"
-    assert artifact.verdict == "allow"
+    assert artifact.action == "allow"
+    assert artifact.allowed is True
     assert artifact.integrity is True
     assert artifact.event_count == 3
     assert len(artifact.events) == 3
@@ -124,28 +125,39 @@ def test_policy_decision_allow():
     chain = _build_chain(ChainStatus.APPROVED)
     artifact = from_chain(chain)
     decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-    assert decision["verdict"] == "allow"
+    assert decision["action"] == "allow"
+    assert decision["allowed"] is True
 
 
 def test_policy_decision_deny():
     chain = _build_chain(ChainStatus.DENIED)
     artifact = from_chain(chain)
     decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-    assert decision["verdict"] == "deny"
+    assert decision["action"] == "deny"
+    assert decision["allowed"] is False
 
 
 def test_policy_decision_escalate():
     chain = _build_chain(ChainStatus.ESCALATED)
     artifact = from_chain(chain)
     decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-    assert decision["verdict"] == "escalate"
+    assert decision["action"] == "require_approval"
+    assert decision["allowed"] is False
 
 
 def test_policy_decision_timed_out():
     chain = _build_chain(ChainStatus.TIMED_OUT)
     artifact = from_chain(chain)
     decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-    assert decision["verdict"] == "deny"
+    assert decision["action"] == "deny"
+    assert decision["allowed"] is False
+
+
+def test_policy_decision_policy_name():
+    chain = _build_chain(ChainStatus.APPROVED)
+    artifact = from_chain(chain)
+    decision = PolicyDecisionAdapter.to_policy_decision(artifact)
+    assert decision["policy_name"] == "gavel.governance-chain"
 
 
 def test_policy_decision_fields():

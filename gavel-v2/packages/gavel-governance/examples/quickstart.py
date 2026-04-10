@@ -92,7 +92,7 @@ def main() -> None:
 
     print(f"  Artifact ID:  {artifact.artifact_id}")
     print(f"  Chain ID:     {artifact.chain_id}")
-    print(f"  Verdict:      {artifact.verdict}")
+    print(f"  Action:       {artifact.action} (allowed={artifact.allowed})")
     print(f"  Principals:   {len(artifact.principals)}")
     for p in artifact.principals:
         print(f"    - {p.actor_id} ({p.role})")

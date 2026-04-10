@@ -3,7 +3,14 @@ GovernanceArtifact — portable, verifiable governance decision records.
 
 Defines a minimal Pydantic schema for cross-system artifact verification,
 plus a PolicyDecisionAdapter that maps governance outcomes to AGT's
-PolicyDecision schema (verdict / reason / matched_rule / metadata).
+PolicyDecision schema (allowed / action / reason / matched_rule / metadata).
+
+AGT's PolicyDecision is defined in
+``packages/agent-mesh/src/agentmesh/governance/policy.py`` with the ``action``
+literal set ``"allow" | "deny" | "warn" | "require_approval" | "log"``.
+This module emits dicts that satisfy that exact schema — no runtime
+dependency on the agent-mesh package is required for producers, and
+consumers can construct ``PolicyDecision(**dict)`` directly.
 
 Any system that receives a GovernanceArtifact can independently verify
 the hash chain without the Gavel runtime — only hashlib and json required.
@@ -89,7 +96,12 @@ class GovernanceArtifact(BaseModel):
         artifact_id: Unique identifier for this artifact.
         chain_id: Governance chain ID this artifact was exported from.
         status: Terminal status of the governance chain.
-        verdict: AGT-compatible verdict — "allow", "deny", or "escalate".
+        action: AGT-compatible action — one of "allow", "deny",
+            "require_approval", "warn", "log". Matches the ``action``
+            literal in AGT's ``PolicyDecision`` exactly.
+        allowed: True iff the action permits the proposed operation to
+            proceed (i.e. ``action == "allow"``). Mirrors AGT's required
+            ``allowed: bool`` field.
         created_at: ISO-8601 timestamp when the chain was created.
         finalized_at: ISO-8601 timestamp when the chain reached terminal state.
         integrity: Whether the hash chain was verified at export time.
@@ -105,7 +117,8 @@ class GovernanceArtifact(BaseModel):
     artifact_id: str = Field(default_factory=lambda: f"ga-{uuid.uuid4().hex[:12]}")
     chain_id: str
     status: str
-    verdict: str
+    action: str
+    allowed: bool
     created_at: str
     finalized_at: Optional[str] = None
     integrity: bool
@@ -129,27 +142,33 @@ class GovernanceArtifact(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════
-# Verdict mapping
+# Action mapping (AGT PolicyDecision.action literal)
 # ═══════════════════════════════════════════════════════════════
 
+# AGT PolicyDecision.action is a Literal["allow","deny","warn","require_approval","log"]
+_VALID_ACTIONS: frozenset[str] = frozenset(
+    {"allow", "deny", "warn", "require_approval", "log"}
+)
 _ALLOW_STATUSES: set[str] = {"APPROVED", "COMPLETED"}
 _DENY_STATUSES: set[str] = {"DENIED", "TIMED_OUT", "ROLLED_BACK"}
 
 
-def _map_verdict(status: str) -> str:
-    """Map a governance chain status to an AGT-compatible verdict.
+def _map_action(status: str) -> str:
+    """Map a governance chain status to an AGT PolicyDecision.action value.
 
     Args:
         status: The governance chain's terminal status.
 
     Returns:
-        One of "allow", "deny", or "escalate".
+        One of "allow", "deny", or "require_approval" — always within the
+        AGT ``action`` literal set.
     """
     if status in _ALLOW_STATUSES:
         return "allow"
     if status in _DENY_STATUSES:
         return "deny"
-    return "escalate"
+    # PENDING / EVALUATING / ESCALATED / EXECUTING → human review required
+    return "require_approval"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -160,13 +179,24 @@ def _map_verdict(status: str) -> str:
 class PolicyDecisionAdapter:
     """Converts a GovernanceArtifact into AGT's PolicyDecision format.
 
-    AGT PolicyDecision schema::
+    AGT's ``PolicyDecision`` (``agentmesh.governance.policy.PolicyDecision``)
+    is a Pydantic model with these fields relevant to this adapter::
 
-        verdict: str        — "allow" / "deny" / "escalate"
-        reason: str         — human-readable explanation
-        matched_rule: str   — identifier of the governing rule
-        metadata: dict      — protocol-specific extensions
+        allowed: bool                         — required
+        action: Literal[
+            "allow", "deny", "warn",
+            "require_approval", "log",
+        ]                                     — required
+        matched_rule: Optional[str]
+        policy_name: Optional[str]
+        reason: Optional[str]
+        metadata: Optional[dict]
+
+    The dict returned by :meth:`to_policy_decision` can be passed directly
+    to ``PolicyDecision(**decision_dict)`` with no translation.
     """
+
+    POLICY_NAME: str = "gavel.governance-chain"
 
     @staticmethod
     def to_policy_decision(artifact: GovernanceArtifact) -> dict[str, Any]:
@@ -176,7 +206,9 @@ class PolicyDecisionAdapter:
             artifact: The governance artifact to convert.
 
         Returns:
-            A dict matching AGT's PolicyDecision schema.
+            A dict matching AGT's ``PolicyDecision`` schema, with all
+            required fields populated and the Gavel-specific extensions
+            carried in ``metadata``.
         """
         principal_count = len(artifact.principals)
         evidence_verdict = artifact.evidence.review_verdict
@@ -191,9 +223,11 @@ class PolicyDecisionAdapter:
         matched_rule = _determine_matched_rule(artifact)
 
         return {
-            "verdict": artifact.verdict,
+            "allowed": artifact.allowed,
+            "action": artifact.action,
             "reason": reason,
             "matched_rule": matched_rule,
+            "policy_name": PolicyDecisionAdapter.POLICY_NAME,
             "metadata": {
                 "artifact_id": artifact.artifact_id,
                 "chain_id": artifact.chain_id,
@@ -277,10 +311,12 @@ def from_governance_chain(
     if status in terminal and events:
         finalized_at = events[-1]["timestamp"]
 
+    action = _map_action(status)
     artifact = GovernanceArtifact(
         chain_id=chain_id,
         status=status,
-        verdict=_map_verdict(status),
+        action=action,
+        allowed=(action == "allow"),
         created_at=created_at,
         finalized_at=finalized_at,
         integrity=integrity,

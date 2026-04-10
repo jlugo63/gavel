@@ -2,8 +2,10 @@
 GovernanceArtifact — portable, verifiable governance decision records.
 
 Defines a minimal Pydantic schema for cross-system artifact verification,
-plus a PolicyDecisionAdapter that maps Gavel's output to AGT's PolicyDecision
-schema (verdict / reason / matched_rule / metadata).
+plus a PolicyDecisionAdapter that maps Gavel's output to AGT's
+PolicyDecision schema (allowed / action / reason / matched_rule /
+policy_name / metadata) as defined in
+``agentmesh.governance.policy.PolicyDecision``.
 
 This is the bridge between Gavel's governance chains and Microsoft's
 Agent Governance Toolkit. Any system that receives a GovernanceArtifact
@@ -70,7 +72,8 @@ class GovernanceArtifact(BaseModel):
     artifact_id: str = Field(default_factory=lambda: f"ga-{uuid.uuid4().hex[:12]}")
     chain_id: str
     status: str
-    verdict: str  # "allow", "deny", "escalate" — AGT-compatible
+    action: str  # AGT PolicyDecision.action literal
+    allowed: bool  # True iff action == "allow"
     created_at: str  # ISO-8601
     finalized_at: Optional[str] = None
     integrity: bool
@@ -90,20 +93,25 @@ class GovernanceArtifact(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════
-# Verdict mapping
+# Action mapping (AGT PolicyDecision.action literal)
 # ═══════════════════════════════════════════════════════════════
 
 _ALLOW_STATUSES = {"APPROVED", "COMPLETED"}
 _DENY_STATUSES = {"DENIED", "TIMED_OUT", "ROLLED_BACK"}
 
 
-def _map_verdict(status: str) -> str:
-    """Map Gavel ChainStatus to AGT verdict."""
+def _map_action(status: str) -> str:
+    """Map Gavel ChainStatus to the AGT PolicyDecision.action literal.
+
+    Returns one of "allow", "deny", or "require_approval" — always within
+    the AGT ``action`` literal set ("allow" | "deny" | "warn" |
+    "require_approval" | "log").
+    """
     if status in _ALLOW_STATUSES:
         return "allow"
     if status in _DENY_STATUSES:
         return "deny"
-    return "escalate"
+    return "require_approval"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -114,12 +122,19 @@ def _map_verdict(status: str) -> str:
 class PolicyDecisionAdapter:
     """Converts a GovernanceArtifact into AGT's PolicyDecision format.
 
-    AGT PolicyDecision schema:
-        verdict: str        — "allow" / "deny" / "escalate"
-        reason: str         — human-readable explanation
-        matched_rule: str   — identifier of the governing rule
-        metadata: dict      — protocol-specific extensions
+    AGT PolicyDecision schema (``agentmesh.governance.policy.PolicyDecision``)::
+
+        allowed: bool                         — required
+        action: Literal[
+            "allow","deny","warn","require_approval","log",
+        ]                                     — required
+        matched_rule: Optional[str]
+        policy_name: Optional[str]
+        reason: Optional[str]
+        metadata: Optional[dict]
     """
+
+    POLICY_NAME: str = "gavel.governance-chain"
 
     @staticmethod
     def to_policy_decision(artifact: GovernanceArtifact) -> dict[str, Any]:
@@ -138,9 +153,11 @@ class PolicyDecisionAdapter:
         matched_rule = _determine_matched_rule(artifact)
 
         return {
-            "verdict": artifact.verdict,
+            "allowed": artifact.allowed,
+            "action": artifact.action,
             "reason": reason,
             "matched_rule": matched_rule,
+            "policy_name": PolicyDecisionAdapter.POLICY_NAME,
             "metadata": {
                 "artifact_id": artifact.artifact_id,
                 "chain_id": artifact.chain_id,
@@ -230,10 +247,12 @@ def from_chain(
     if status in terminal and chain.events:
         finalized_at = chain.events[-1].timestamp.isoformat()
 
+    action = _map_action(status)
     artifact = GovernanceArtifact(
         chain_id=chain.chain_id,
         status=status,
-        verdict=_map_verdict(status),
+        action=action,
+        allowed=(action == "allow"),
         created_at=chain.created_at.isoformat(),
         finalized_at=finalized_at,
         integrity=chain.verify_integrity(),

@@ -13,37 +13,48 @@ Gavel adds **governance chains** to Microsoft's Agent Governance Toolkit (AGT). 
 ## Quick Start
 
 ```python
-from gavel.chain import GovernanceChain, EventType, ChainStatus
-from gavel.artifact import from_chain, verify_artifact, PolicyDecisionAdapter
+from gavel_governance import (
+    from_governance_chain,
+    verify_artifact,
+    PolicyDecisionAdapter,
+)
 
-# Create a governance chain
-chain = GovernanceChain()
+# Build an artifact from raw governance chain events
+artifact = from_governance_chain(
+    chain_id="gc-deploy-001",
+    status="APPROVED",
+    created_at="2026-04-10T12:00:00Z",
+    events=[
+        {"event_id": "e1", "event_type": "INBOUND_INTENT",
+         "actor_id": "agent:planner", "role": "proposer",
+         "timestamp": "2026-04-10T12:00:00Z", "event_hash": "..."},
+        {"event_id": "e2", "event_type": "EVIDENCE_REVIEW",
+         "actor_id": "agent:reviewer", "role": "reviewer",
+         "timestamp": "2026-04-10T12:00:05Z", "event_hash": "..."},
+        {"event_id": "e3", "event_type": "APPROVAL_GRANTED",
+         "actor_id": "agent:supervisor", "role": "approver",
+         "timestamp": "2026-04-10T12:00:10Z", "event_hash": "..."},
+    ],
+    integrity=True,
+    evidence={
+        "checks_total": 5, "checks_passed": 5,
+        "scope_compliance": "FULL", "review_verdict": "PASS",
+    },
+)
 
-# 1. Agent proposes an action
-chain.append(EventType.INBOUND_INTENT, actor_id="agent:planner", role_used="proposer",
-             payload={"action": "deploy_model", "target": "prod"})
-
-# 2. Policy evaluation (system)
-chain.append(EventType.POLICY_EVAL, actor_id="system:policy", role_used="evaluator",
-             payload={"result": "requires_review", "tier": 3})
-
-# 3. Evidence review (distinct principal)
-chain.append(EventType.EVIDENCE_REVIEW, actor_id="agent:reviewer", role_used="reviewer",
-             payload={"verdict": "PASS", "scope_compliance": "FULL"})
-
-# 4. Approval (third distinct principal)
-chain.append(EventType.APPROVAL_GRANTED, actor_id="agent:supervisor", role_used="approver",
-             payload={"reason": "evidence passed, scope compliant"})
-chain.status = ChainStatus.APPROVED
-
-# Export as a GovernanceArtifact
-artifact = from_chain(chain)
-
-# Convert to AGT PolicyDecision
+# Convert to an AGT PolicyDecision dict — constructs directly into
+# agentmesh.governance.policy.PolicyDecision(**decision) with no translation.
 decision = PolicyDecisionAdapter.to_policy_decision(artifact)
-# {"verdict": "allow", "reason": "...", "matched_rule": "...", "metadata": {...}}
+# {
+#   "allowed": True,
+#   "action": "allow",
+#   "reason": "Governance chain gc-deploy-001: approved by 3 principal(s), ...",
+#   "matched_rule": "article-III:separation-of-powers",
+#   "policy_name": "gavel.governance-chain",
+#   "metadata": { "artifact_id": "ga-...", "chain_id": "gc-deploy-001", ... }
+# }
 
-# Independent verification — no runtime needed
+# Independent verification — no runtime needed, only hashlib + json
 result = verify_artifact(artifact.model_dump(mode="json"))
 assert result["valid"]
 ```
@@ -56,7 +67,8 @@ class GovernanceArtifact(BaseModel):
     artifact_id: str            # "ga-{hex}" unique identifier
     chain_id: str               # Governance chain ID
     status: str                 # APPROVED, DENIED, ESCALATED, etc.
-    verdict: str                # "allow" / "deny" / "escalate" (AGT-compatible)
+    action: str                 # AGT PolicyDecision.action literal
+    allowed: bool               # True iff action == "allow"
     created_at: str             # ISO-8601
     finalized_at: str | None    # When chain reached terminal state
     integrity: bool             # Hash chain verified at export time
@@ -70,17 +82,29 @@ class GovernanceArtifact(BaseModel):
 
 ## AGT PolicyDecision Mapping
 
-| Gavel field | AGT PolicyDecision field |
-|---|---|
-| `artifact.verdict` | `verdict` ("allow" / "deny" / "escalate") |
-| Chain summary | `reason` (human-readable) |
-| Constitutional article | `matched_rule` (e.g. "article-III:separation-of-powers") |
-| Full artifact | `metadata` (artifact_id, integrity, evidence, hash) |
+`PolicyDecisionAdapter.to_policy_decision(artifact)` returns a dict that
+satisfies AGT's
+[`agentmesh.governance.policy.PolicyDecision`](https://github.com/microsoft/agent-governance-toolkit/blob/main/packages/agent-mesh/src/agentmesh/governance/policy.py)
+schema field-for-field:
 
-Verdict mapping:
+| Output key | AGT `PolicyDecision` field | Value |
+|---|---|---|
+| `allowed` | `allowed: bool` | `action == "allow"` |
+| `action` | `action: Literal[...]` | `"allow"` / `"deny"` / `"require_approval"` |
+| `reason` | `reason: Optional[str]` | Human-readable chain summary |
+| `matched_rule` | `matched_rule: Optional[str]` | e.g. `"article-III:separation-of-powers"` |
+| `policy_name` | `policy_name: Optional[str]` | `"gavel.governance-chain"` |
+| `metadata` | `metadata: Optional[dict]` | `{artifact_id, chain_id, integrity, evidence, artifact_hash, ...}` |
+
+The dict can be passed directly to `PolicyDecision(**decision)` with no
+translation. A mirror schema test in `tests/test_governance_artifact.py`
+guards against drift from AGT's upstream schema.
+
+Status → action mapping:
+
 - **APPROVED / COMPLETED** → `"allow"`
 - **DENIED / TIMED_OUT / ROLLED_BACK** → `"deny"`
-- **PENDING / EVALUATING / ESCALATED / EXECUTING** → `"escalate"`
+- **PENDING / EVALUATING / ESCALATED / EXECUTING** → `"require_approval"`
 
 ## Independent Verification
 
