@@ -8,6 +8,7 @@ Gavel's chain/separation/blastbox/evidence/tier pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -37,6 +38,8 @@ from gavel.agents import AgentRegistry, AgentStatus
 from gavel.supervisor import Supervisor
 from gavel.hooks import classify_risk, should_govern, format_action_log
 from .gate import router as gate_router, init_gate
+from gavel.compliance import IncidentRegistry
+from gavel.compliance_router import router as compliance_router, init_compliance_router
 
 # --- Microsoft Agent Governance Toolkit layer ---
 agent_os = AgentOSEngine()
@@ -67,6 +70,7 @@ agent_registry = AgentRegistry(event_bus)
 from gavel.enrollment import EnrollmentRegistry, EnrollmentApplication, EnrollmentStatus, TokenManager, GovernanceToken
 enrollment_registry = EnrollmentRegistry()
 token_manager = TokenManager()
+incident_registry = IncidentRegistry()
 
 
 async def require_gavel_token(
@@ -216,6 +220,18 @@ async def lifespan(app_instance: FastAPI):
         chain_store=chains,
         liveness_monitor=liveness,
         cedar_engine=agent_os,
+        tokens=token_manager,
+        lock_manager=chain_locks,
+    )
+
+    init_compliance_router(
+        incidents=incident_registry,
+        enrollments=enrollment_registry,
+        chains=chains,
+        review_results=review_results,
+        constitution=constitution,
+        tier_policy=tier_policy,
+        event_bus=event_bus,
     )
 
     sup = Supervisor(event_bus, agent_registry, liveness)
@@ -232,6 +248,7 @@ app = FastAPI(
 )
 
 app.include_router(gate_router)
+app.include_router(compliance_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -241,20 +258,43 @@ app.add_middleware(
 )
 
 
-@app.get("/demo", response_class=HTMLResponse)
-async def demo_page():
-    """Serve the visual governance chain demo."""
-    html_path = Path(__file__).parent / "demo.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Demo page not available in this deployment")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
-
-
 # --- In-memory stores (swap for DB in production) ---
 chains: dict[str, GovernanceChain] = {}
 evidence_packets: dict[str, EvidencePacket] = {}
 review_results: dict[str, ReviewResult] = {}
 execution_tokens: dict[str, dict] = {}
+
+
+# --- Per-chain concurrency control ---
+
+class ChainLockManager:
+    """Manages per-chain asyncio locks to prevent concurrent chain mutations.
+
+    Two concurrent requests on the same chain_id can interleave appends and
+    corrupt the hash chain. This manager provides a lazy-created asyncio.Lock
+    per chain_id, so callers serialize mutations with:
+
+        async with chain_locks.lock(chain_id):
+            chain.append(...)
+    """
+
+    def __init__(self):
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    @asynccontextmanager
+    async def lock(self, chain_id: str):
+        """Acquire the lock for *chain_id*, creating it lazily if needed."""
+        if chain_id not in self._locks:
+            self._locks[chain_id] = asyncio.Lock()
+        async with self._locks[chain_id]:
+            yield
+
+    def discard(self, chain_id: str) -> None:
+        """Remove the lock for a completed/expired chain to reclaim memory."""
+        self._locks.pop(chain_id, None)
+
+
+chain_locks = ChainLockManager()
 
 
 # --- Request/Response models ---
@@ -286,12 +326,28 @@ class ApprovalRequest(BaseModel):
     rationale: str
 
 
+class ExecuteRequest(BaseModel):
+    chain_id: str
+    execution_token: str  # The exec-t-* token string returned by /approve
+
+
+class ExecuteResponse(BaseModel):
+    chain_id: str
+    status: str
+    execution_id: str
+    token_revoked: bool
+    result: dict[str, Any] = Field(default_factory=dict)
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+
+
 # --- Endpoints ---
 
 @app.post("/propose")
-async def propose(req: ProposalRequest):
+async def propose(req: ProposalRequest, token: GovernanceToken = Depends(require_gavel_token)):
     """
     Submit a governance proposal. This starts a new chain.
+
+    Requires a valid X-Gavel-Token header (issued at enrollment).
 
     Flow:
     1. Verify actor identity (Agent Mesh in production)
@@ -323,131 +379,133 @@ async def propose(req: ProposalRequest):
     except SeparationViolation as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    # --- Log INBOUND_INTENT with real identity ---
-    intent_event = chain.append(
-        event_type=EventType.INBOUND_INTENT,
-        actor_id=req.actor_id,
-        role_used="proposer",
-        payload={
-            "goal": req.goal,
-            "action_type": req.action_type,
-            "action_content": req.action_content,
-            "scope": req.scope,
-            "expected_outcomes": req.expected_outcomes,
-            "agent_did": str(agent_identity.did),
-            "trust_score": agent_trust.total_score,
-            "trust_tier": agent_trust.tier,
-        },
-    )
-
-    # --- Gavel Layer: Risk evaluation and tier assignment ---
-
-    factors = RiskFactors(
-        action_type_base=req.risk_factors.get("base_risk", 0.3),
-        touches_production=req.risk_factors.get("production", False),
-        touches_financial=req.risk_factors.get("financial", False),
-        touches_pii=req.risk_factors.get("pii", False),
-    )
-
-    tier, requirements, risk = tier_policy.evaluate(factors)
-
-    # --- Log POLICY_EVAL ---
-    policy_event = chain.append(
-        event_type=EventType.POLICY_EVAL,
-        actor_id="system:policy-engine",
-        role_used="system",
-        payload={
-            "risk_score": risk,
-            "tier": tier.value,
-            "tier_name": tier.name,
-            "requirements": {
-                "blast_box": requirements.requires_blast_box,
-                "evidence_review": requirements.requires_evidence_review,
-                "agent_attestation": requirements.requires_agent_attestation,
-                "min_attestations": requirements.min_attestations,
-                "human_approval": requirements.requires_human_approval,
-                "senior_agent": requirements.requires_senior_agent,
-                "sla_seconds": requirements.sla_seconds,
-            },
-        },
-    )
-
-    # --- Gavel Layer: Start SLA timer ---
-    sla_timeout = liveness.track(chain.chain_id, requirements.sla_seconds)
-
-    # --- Gavel Layer: Blast box (speculative execution) ---
-    if requirements.requires_blast_box:
-        scope = ScopeDeclaration(
-            allow_paths=req.scope.get("allow_paths", []),
-            allow_commands=req.scope.get("allow_commands", []),
-            allow_network=req.scope.get("allow_network", False),
-        )
-
-        packet = await blastbox.execute(
-            chain_id=chain.chain_id,
-            intent_event_id=intent_event.event_id,
-            command_argv=req.scope.get("allow_commands", []),
-            scope=scope,
-        )
-        evidence_packets[chain.chain_id] = packet
-
-        chain.append(
-            event_type=EventType.BLASTBOX_EVIDENCE,
-            actor_id="system:blastbox",
-            role_used="system",
+    # Lock the chain for the duration of all mutations
+    async with chain_locks.lock(chain.chain_id):
+        # --- Log INBOUND_INTENT with real identity ---
+        intent_event = chain.append(
+            event_type=EventType.INBOUND_INTENT,
+            actor_id=req.actor_id,
+            role_used="proposer",
             payload={
-                "packet_id": packet.packet_id,
-                "exit_code": packet.exit_code,
-                "stdout_hash": packet.stdout_hash,
-                "packet_hash": packet.compute_hash(),
+                "goal": req.goal,
+                "action_type": req.action_type,
+                "action_content": req.action_content,
+                "scope": req.scope,
+                "expected_outcomes": req.expected_outcomes,
+                "agent_did": str(agent_identity.did),
+                "trust_score": agent_trust.total_score,
+                "trust_tier": agent_trust.tier,
             },
         )
 
-        # --- Gavel Layer: Deterministic evidence review ---
-        if requirements.requires_evidence_review:
-            result = evidence_reviewer.review(packet, scope)
-            review_results[chain.chain_id] = result
+        # --- Gavel Layer: Risk evaluation and tier assignment ---
 
-            chain.append(
-                event_type=EventType.EVIDENCE_REVIEW,
-                actor_id="system:evidence-reviewer",
-                role_used="system",
-                payload={
-                    "verdict": result.verdict.value,
-                    "risk_delta": result.risk_delta,
-                    "scope_compliance": result.scope_compliance,
-                    "findings_count": len(result.findings),
-                },
-            )
-
-    # --- Determine chain status ---
-    if tier == AutonomyTier.SEMI_AUTONOMOUS and review_results.get(chain.chain_id, ReviewResult()).passed:
-        # Tier 1 auto-approve: evidence passed, low risk
-        chain.status = ChainStatus.APPROVED
-        chain.append(
-            event_type=EventType.APPROVAL_GRANTED,
-            actor_id="system:auto-approve",
-            role_used="system",
-            payload={"reason": "Tier 1 auto-approve: evidence review passed, risk below threshold"},
+        factors = RiskFactors(
+            action_type_base=req.risk_factors.get("base_risk", 0.3),
+            touches_production=req.risk_factors.get("production", False),
+            touches_financial=req.risk_factors.get("financial", False),
+            touches_pii=req.risk_factors.get("pii", False),
         )
-        liveness.resolve(chain.chain_id, "AUTO_APPROVED")
-    else:
-        chain.status = ChainStatus.ESCALATED
-        chain.append(
-            event_type=EventType.ESCALATED,
+
+        tier, requirements, risk = tier_policy.evaluate(factors)
+
+        # --- Log POLICY_EVAL ---
+        policy_event = chain.append(
+            event_type=EventType.POLICY_EVAL,
             actor_id="system:policy-engine",
             role_used="system",
             payload={
-                "reason": f"Tier {tier.value} requires additional approval",
-                "needed": {
-                    "attestations": requirements.min_attestations,
-                    "human": requirements.requires_human_approval,
-                    "senior": requirements.requires_senior_agent,
+                "risk_score": risk,
+                "tier": tier.value,
+                "tier_name": tier.name,
+                "requirements": {
+                    "blast_box": requirements.requires_blast_box,
+                    "evidence_review": requirements.requires_evidence_review,
+                    "agent_attestation": requirements.requires_agent_attestation,
+                    "min_attestations": requirements.min_attestations,
+                    "human_approval": requirements.requires_human_approval,
+                    "senior_agent": requirements.requires_senior_agent,
+                    "sla_seconds": requirements.sla_seconds,
                 },
             },
         )
 
-    chains[chain.chain_id] = chain
+        # --- Gavel Layer: Start SLA timer ---
+        sla_timeout = liveness.track(chain.chain_id, requirements.sla_seconds)
+
+        # --- Gavel Layer: Blast box (speculative execution) ---
+        if requirements.requires_blast_box:
+            scope = ScopeDeclaration(
+                allow_paths=req.scope.get("allow_paths", []),
+                allow_commands=req.scope.get("allow_commands", []),
+                allow_network=req.scope.get("allow_network", False),
+            )
+
+            packet = await blastbox.execute(
+                chain_id=chain.chain_id,
+                intent_event_id=intent_event.event_id,
+                command_argv=req.scope.get("allow_commands", []),
+                scope=scope,
+            )
+            evidence_packets[chain.chain_id] = packet
+
+            chain.append(
+                event_type=EventType.BLASTBOX_EVIDENCE,
+                actor_id="system:blastbox",
+                role_used="system",
+                payload={
+                    "packet_id": packet.packet_id,
+                    "exit_code": packet.exit_code,
+                    "stdout_hash": packet.stdout_hash,
+                    "packet_hash": packet.compute_hash(),
+                },
+            )
+
+            # --- Gavel Layer: Deterministic evidence review ---
+            if requirements.requires_evidence_review:
+                result = evidence_reviewer.review(packet, scope)
+                review_results[chain.chain_id] = result
+
+                chain.append(
+                    event_type=EventType.EVIDENCE_REVIEW,
+                    actor_id="system:evidence-reviewer",
+                    role_used="system",
+                    payload={
+                        "verdict": result.verdict.value,
+                        "risk_delta": result.risk_delta,
+                        "scope_compliance": result.scope_compliance,
+                        "findings_count": len(result.findings),
+                    },
+                )
+
+        # --- Determine chain status ---
+        if tier == AutonomyTier.SEMI_AUTONOMOUS and review_results.get(chain.chain_id, ReviewResult()).passed:
+            # Tier 1 auto-approve: evidence passed, low risk
+            chain.status = ChainStatus.APPROVED
+            chain.append(
+                event_type=EventType.APPROVAL_GRANTED,
+                actor_id="system:auto-approve",
+                role_used="system",
+                payload={"reason": "Tier 1 auto-approve: evidence review passed, risk below threshold"},
+            )
+            liveness.resolve(chain.chain_id, "AUTO_APPROVED")
+        else:
+            chain.status = ChainStatus.ESCALATED
+            chain.append(
+                event_type=EventType.ESCALATED,
+                actor_id="system:policy-engine",
+                role_used="system",
+                payload={
+                    "reason": f"Tier {tier.value} requires additional approval",
+                    "needed": {
+                        "attestations": requirements.min_attestations,
+                        "human": requirements.requires_human_approval,
+                        "senior": requirements.requires_senior_agent,
+                    },
+                },
+            )
+
+        chains[chain.chain_id] = chain
 
     # Publish to dashboard
     await event_bus.publish(DashboardEvent(
@@ -468,8 +526,8 @@ async def propose(req: ProposalRequest):
 
 
 @app.post("/attest")
-async def attest(req: AttestationRequest):
-    """Submit an agent attestation for a chain."""
+async def attest(req: AttestationRequest, token: GovernanceToken = Depends(require_gavel_token)):
+    """Submit an agent attestation for a chain. Requires a valid X-Gavel-Token."""
     chain = chains.get(req.chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail="Chain not found")
@@ -480,16 +538,17 @@ async def attest(req: AttestationRequest):
     except SeparationViolation as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    event_type = EventType.REVIEW_ATTESTATION
-    chain.append(
-        event_type=event_type,
-        actor_id=req.actor_id,
-        role_used="reviewer",
-        payload={
-            "decision": req.decision,
-            "rationale": req.rationale,
-        },
-    )
+    async with chain_locks.lock(req.chain_id):
+        event_type = EventType.REVIEW_ATTESTATION
+        chain.append(
+            event_type=event_type,
+            actor_id=req.actor_id,
+            role_used="reviewer",
+            payload={
+                "decision": req.decision,
+                "rationale": req.rationale,
+            },
+        )
 
     return {
         "chain_id": req.chain_id,
@@ -500,8 +559,8 @@ async def attest(req: AttestationRequest):
 
 
 @app.post("/approve")
-async def approve(req: ApprovalRequest):
-    """Submit an approval or denial for a chain."""
+async def approve(req: ApprovalRequest, token: GovernanceToken = Depends(require_gavel_token)):
+    """Submit an approval or denial for a chain. Requires a valid X-Gavel-Token."""
     chain = chains.get(req.chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail="Chain not found")
@@ -520,56 +579,234 @@ async def approve(req: ApprovalRequest):
             detail={"constitutional_violations": violations},
         )
 
-    if req.decision == "APPROVED":
-        chain.status = ChainStatus.APPROVED
-        chain.append(
-            event_type=EventType.APPROVAL_GRANTED,
-            actor_id=req.actor_id,
-            role_used="approver",
-            payload={"rationale": req.rationale},
+    async with chain_locks.lock(req.chain_id):
+        if req.decision == "APPROVED":
+            chain.status = ChainStatus.APPROVED
+            chain.append(
+                event_type=EventType.APPROVAL_GRANTED,
+                actor_id=req.actor_id,
+                role_used="approver",
+                payload={"rationale": req.rationale},
+            )
+            liveness.resolve(req.chain_id, "APPROVED")
+
+            # Mint execution token
+            token_id = f"exec-t-{uuid.uuid4().hex[:8]}"
+            exec_token = {
+                "token_id": token_id,
+                "chain_id": req.chain_id,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                "used": False,
+            }
+            execution_tokens[token_id] = exec_token
+
+            chain.append(
+                event_type=EventType.EXECUTION_TOKEN,
+                actor_id="system:token-minter",
+                role_used="system",
+                payload=exec_token,
+            )
+
+            return {
+                "chain_id": req.chain_id,
+                "status": "APPROVED",
+                "execution_token": token_id,
+                "roster": separation.get_chain_roster(req.chain_id),
+                "timeline": chain.to_timeline(),
+            }
+        else:
+            chain.status = ChainStatus.DENIED
+            chain.append(
+                event_type=EventType.APPROVAL_DENIED,
+                actor_id=req.actor_id,
+                role_used="approver",
+                payload={"rationale": req.rationale},
+            )
+            liveness.resolve(req.chain_id, "DENIED")
+
+            return {
+                "chain_id": req.chain_id,
+                "status": "DENIED",
+                "rationale": req.rationale,
+                "timeline": chain.to_timeline(),
+            }
+
+
+@app.post("/execute", response_model=ExecuteResponse)
+async def execute(req: ExecuteRequest):
+    """
+    Execute an approved governance action -- closing the propose->approve->execute loop.
+
+    Constitutional enforcement:
+    - Article II.2: Tokens are single-use (revoked after execution)
+    - Fail-closed: any validation failure = deny
+
+    Flow:
+    1. Validate execution token (exists, not used, not expired)
+    2. Verify chain exists and is APPROVED
+    3. Verify chain hash integrity (constitutional invariant)
+    4. Record EXECUTION_STARTED
+    5. Run the action (simulated via BlastBox)
+    6. Record EXECUTION_COMPLETED with results
+    7. Revoke token (single-use)
+    8. Update chain status to COMPLETED
+    """
+    # --- Step 1: Validate execution token ---
+    token_record = execution_tokens.get(req.execution_token)
+    if token_record is None:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "token_not_found", "detail": "Execution token not recognized"},
         )
-        liveness.resolve(req.chain_id, "APPROVED")
 
-        # Mint execution token
-        token_id = f"exec-t-{uuid.uuid4().hex[:8]}"
-        token = {
-            "token_id": token_id,
-            "chain_id": req.chain_id,
-            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
-            "used": False,
-        }
-        execution_tokens[token_id] = token
-
-        chain.append(
-            event_type=EventType.EXECUTION_TOKEN,
-            actor_id="system:token-minter",
-            role_used="system",
-            payload=token,
+    if token_record.get("used", False):
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "token_already_used", "detail": "Execution token has already been consumed (Article II.2: single-use)"},
         )
 
-        return {
-            "chain_id": req.chain_id,
-            "status": "APPROVED",
-            "execution_token": token_id,
-            "roster": separation.get_chain_roster(req.chain_id),
-            "timeline": chain.to_timeline(),
-        }
-    else:
-        chain.status = ChainStatus.DENIED
-        chain.append(
-            event_type=EventType.APPROVAL_DENIED,
-            actor_id=req.actor_id,
-            role_used="approver",
-            payload={"rationale": req.rationale},
+    # Check expiry
+    expires_at = datetime.fromisoformat(token_record["expires_at"])
+    if datetime.now(timezone.utc) >= expires_at:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "token_expired", "detail": "Execution token has expired"},
         )
-        liveness.resolve(req.chain_id, "DENIED")
 
-        return {
-            "chain_id": req.chain_id,
-            "status": "DENIED",
-            "rationale": req.rationale,
-            "timeline": chain.to_timeline(),
-        }
+    # Token must belong to the requested chain
+    if token_record["chain_id"] != req.chain_id:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "token_chain_mismatch", "detail": "Execution token does not belong to this chain"},
+        )
+
+    # --- Step 2: Verify chain exists and is APPROVED ---
+    chain = chains.get(req.chain_id)
+    if chain is None:
+        raise HTTPException(status_code=404, detail="Chain not found")
+
+    if chain.status != ChainStatus.APPROVED:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "chain_not_approved",
+                "detail": f"Chain status is {chain.status.value}, expected APPROVED",
+            },
+        )
+
+    # --- Step 3: Verify constitutional invariants (hash integrity) ---
+    if not chain.verify_integrity():
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "integrity_violation", "detail": "Chain hash integrity check failed -- possible tampering"},
+        )
+
+    violations = constitution.check_chain_invariants(chain)
+    if violations:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "constitutional_violation", "detail": violations},
+        )
+
+    async with chain_locks.lock(req.chain_id):
+        # --- Step 4: Record EXECUTION_STARTED ---
+        execution_id = f"exec-{uuid.uuid4().hex[:8]}"
+        chain.status = ChainStatus.EXECUTING
+
+        chain.append(
+            event_type=EventType.EXECUTION_STARTED,
+            actor_id="system:executor",
+            role_used="executor",
+            payload={
+                "execution_id": execution_id,
+                "execution_token": req.execution_token,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        # --- Step 5: Run the action (simulated) ---
+        # Extract the original intent from the chain to know what to execute
+        intent_event = chain.get_event(EventType.INBOUND_INTENT)
+        action_content = intent_event.payload if intent_event else {}
+
+        try:
+            # Simulate execution via BlastBox if there are commands in scope
+            scope_data = action_content.get("scope", {})
+            commands = scope_data.get("allow_commands", [])
+
+            if commands:
+                scope = ScopeDeclaration(
+                    allow_paths=scope_data.get("allow_paths", []),
+                    allow_commands=commands,
+                    allow_network=scope_data.get("allow_network", False),
+                )
+                packet = await blastbox.execute(
+                    chain_id=req.chain_id,
+                    intent_event_id=intent_event.event_id if intent_event else "",
+                    command_argv=commands,
+                    scope=scope,
+                )
+                exec_result = {
+                    "method": "blastbox",
+                    "exit_code": packet.exit_code,
+                    "stdout_hash": packet.stdout_hash,
+                    "packet_id": packet.packet_id,
+                    "success": packet.exit_code == 0,
+                }
+            else:
+                # No commands -- record as a governed action completion
+                exec_result = {
+                    "method": "governed_passthrough",
+                    "action_type": action_content.get("action_type", "unknown"),
+                    "goal": action_content.get("goal", ""),
+                    "success": True,
+                }
+        except Exception as e:
+            # Fail-closed: record failure, still revoke token, mark chain
+            exec_result = {
+                "method": "failed",
+                "error": str(e),
+                "success": False,
+            }
+
+        # --- Step 6: Record EXECUTION_COMPLETED ---
+        chain.append(
+            event_type=EventType.EXECUTION_COMPLETED,
+            actor_id="system:executor",
+            role_used="executor",
+            payload={
+                "execution_id": execution_id,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "result": exec_result,
+            },
+        )
+
+        # --- Step 7: Revoke token (Article II.2 -- single-use) ---
+        token_record["used"] = True
+
+        # --- Step 8: Update chain status to COMPLETED ---
+        chain.status = ChainStatus.COMPLETED
+
+    # --- Publish to dashboard ---
+    await event_bus.publish(DashboardEvent(
+        event_type="execution_completed",
+        agent_id="system:executor",
+        chain_id=req.chain_id,
+        payload={
+            "execution_id": execution_id,
+            "success": exec_result.get("success", False),
+            "method": exec_result.get("method", "unknown"),
+        },
+    ))
+
+    return ExecuteResponse(
+        chain_id=req.chain_id,
+        status=chain.status.value,
+        execution_id=execution_id,
+        token_revoked=True,
+        result=exec_result,
+        timeline=chain.to_timeline(),
+    )
 
 
 @app.get("/chain/{chain_id}")
@@ -611,14 +848,16 @@ async def get_liveness():
     for timeout in expired:
         chain = chains.get(timeout.chain_id)
         if chain and chain.status == ChainStatus.ESCALATED:
-            chain.status = ChainStatus.TIMED_OUT
-            chain.append(
-                event_type=EventType.AUTO_DENIED,
-                actor_id="system:liveness",
-                role_used="system",
-                payload={"reason": "SLA timeout — Constitutional Article IV.2: system degrades toward safety"},
-            )
+            async with chain_locks.lock(timeout.chain_id):
+                chain.status = ChainStatus.TIMED_OUT
+                chain.append(
+                    event_type=EventType.AUTO_DENIED,
+                    actor_id="system:liveness",
+                    role_used="system",
+                    payload={"reason": "SLA timeout — Constitutional Article IV.2: system degrades toward safety"},
+                )
             liveness.resolve(timeout.chain_id, "AUTO_DENIED")
+            chain_locks.discard(timeout.chain_id)
 
     return liveness.status_summary()
 
@@ -699,17 +938,18 @@ async def report_action(agent_id: str, report: ActionReport):
     # Record chain completion if chain_id provided
     if report.chain_id and report.chain_id in chains:
         chain = chains[report.chain_id]
-        chain.append(
-            event_type=EventType.EXECUTION_TOKEN,
-            actor_id=agent_id,
-            role_used="executor",
-            payload={
-                "tool": report.tool,
-                "success": report.success,
-                "tool_input_summary": report.tool_input_summary,
-                "phase": "completion",
-            },
-        )
+        async with chain_locks.lock(report.chain_id):
+            chain.append(
+                event_type=EventType.EXECUTION_TOKEN,
+                actor_id=agent_id,
+                role_used="executor",
+                payload={
+                    "tool": report.tool,
+                    "success": report.success,
+                    "tool_input_summary": report.tool_input_summary,
+                    "phase": "completion",
+                },
+            )
 
     # Publish action_reported event
     await event_bus.publish(DashboardEvent(
