@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Any
 
 from gavel.blastbox import EvidencePacket, ScopeDeclaration
+from gavel.privacy import PrivacyScanResult, scan_text
 
 
 class ReviewVerdict(str, Enum):
@@ -46,6 +47,10 @@ class ReviewResult:
     risk_delta: float = 0.0
     scope_compliance: str = "FULL"
     review_hash: str = ""
+    # D-3 Privacy: redacted outputs carry no PII/PHI; originals are dropped.
+    redacted_stdout: str = ""
+    redacted_stderr: str = ""
+    privacy_findings: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -176,6 +181,38 @@ class EvidenceReviewer:
                     detail=f"No secrets detected in {label}",
                 ))
 
+        # Check 5b: D-3 PII/PHI scan with redaction
+        stdout_scan = scan_text(stdout_content)
+        stderr_scan = scan_text(stderr_content)
+        privacy_findings_dict: list[dict[str, Any]] = []
+        for scan, label in [(stdout_scan, "stdout"), (stderr_scan, "stderr")]:
+            if scan.findings:
+                # PII and PHI both contribute to risk; PHI is weighted heavier.
+                risk_delta += 0.3 * scan.pii_count + 0.5 * scan.phi_count
+                for f in scan.findings:
+                    privacy_findings_dict.append({
+                        "stream": label,
+                        "category": f.category.value,
+                        "type": f.type,
+                        "span": list(f.span),
+                        "redacted": f.redacted,
+                    })
+                findings.append(Finding(
+                    check="pii_phi_scan",
+                    passed=False,
+                    detail=(
+                        f"{label}: {scan.pii_count} PII + {scan.phi_count} PHI "
+                        f"matches (redacted in artifact)"
+                    ),
+                    severity="fail" if scan.phi_count else "warn",
+                ))
+            else:
+                findings.append(Finding(
+                    check="pii_phi_scan",
+                    passed=True,
+                    detail=f"{label}: no PII/PHI detected",
+                ))
+
         # Check 6: Unexpected deletions
         if packet.files_deleted:
             for f in packet.files_deleted:
@@ -208,4 +245,7 @@ class EvidenceReviewer:
             findings=findings,
             risk_delta=risk_delta,
             scope_compliance=scope_compliance,
+            redacted_stdout=stdout_scan.redacted_text,
+            redacted_stderr=stderr_scan.redacted_text,
+            privacy_findings=privacy_findings_dict,
         )
