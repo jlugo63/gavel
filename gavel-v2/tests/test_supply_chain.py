@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from gavel.crypto import Ed25519KeyPair
 from gavel.supply_chain import (
     DependencyRecord,
     SBOM,
@@ -12,9 +13,15 @@ from gavel.supply_chain import (
     SupplyChainValidator,
     ToolAttestation,
     ValidationResult,
+    _canonical_content,
+    _verify_signature,
+    sign_attestation,
 )
 
 NOW = datetime.now(timezone.utc)
+
+# Shared key pair for tests that need real signatures
+_TEST_KEY_PAIR = Ed25519KeyPair.generate()
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -25,15 +32,17 @@ def _make_attestation(
     signed: bool = True,
     expired: bool = False,
 ) -> ToolAttestation:
-    return ToolAttestation(
+    att = ToolAttestation(
         tool_name=name,
         tool_version=version,
         publisher="acme-corp",
         content_hash="sha256:abc123" + name,
-        signature="sig-valid" if signed else None,
         attested_at=NOW - timedelta(days=30),
         expires_at=(NOW - timedelta(hours=1)) if expired else (NOW + timedelta(days=365)),
     )
+    if signed:
+        att = sign_attestation(att, _TEST_KEY_PAIR)
+    return att
 
 
 def _make_dependency(
@@ -335,3 +344,120 @@ class TestValidationResult:
         vr = ValidationResult(valid=False, violations=["bad thing"])
         assert not vr.valid
         assert len(vr.violations) == 1
+
+
+# ── Signature Verification (ASI06) ──────────────────────────
+
+class TestSignatureVerification:
+    """Ed25519 signature verification for tool attestations."""
+
+    def test_sign_and_verify_roundtrip(self):
+        """Signing an attestation then verifying it should succeed."""
+        att = _make_attestation(signed=False)
+        signed = sign_attestation(att, _TEST_KEY_PAIR)
+        assert signed.signature is not None
+        assert signed.public_key is not None
+        ok, reason = _verify_signature(signed)
+        assert ok, reason
+        assert reason == "valid"
+
+    def test_tampered_content_fails(self):
+        """Changing attestation content after signing invalidates the signature."""
+        signed = _make_attestation(signed=True)
+        tampered = signed.model_copy(update={"content_hash": "sha256:TAMPERED"})
+        ok, reason = _verify_signature(tampered)
+        assert not ok
+        assert "does not match" in reason
+
+    def test_tampered_publisher_fails(self):
+        """Changing the publisher after signing invalidates the signature."""
+        signed = _make_attestation(signed=True)
+        tampered = signed.model_copy(update={"publisher": "evil-corp"})
+        ok, reason = _verify_signature(tampered)
+        assert not ok
+
+    def test_missing_signature(self):
+        """An attestation without a signature returns False with clear reason."""
+        att = _make_attestation(signed=False)
+        ok, reason = _verify_signature(att)
+        assert not ok
+        assert "missing signature" in reason
+
+    def test_missing_public_key(self):
+        """An attestation with signature but no public_key fails gracefully."""
+        signed = _make_attestation(signed=True)
+        no_key = signed.model_copy(update={"public_key": None})
+        ok, reason = _verify_signature(no_key)
+        assert not ok
+        assert "missing public_key" in reason
+
+    def test_malformed_signature_hex(self):
+        """A non-hex or wrong-length signature is handled gracefully."""
+        att = _make_attestation(signed=True)
+        bad_sig = att.model_copy(update={"signature": "not-hex-at-all"})
+        ok, reason = _verify_signature(bad_sig)
+        assert not ok
+        assert "malformed" in reason
+
+    def test_malformed_public_key_hex(self):
+        """A non-hex or wrong-length public_key is handled gracefully."""
+        att = _make_attestation(signed=True)
+        bad_key = att.model_copy(update={"public_key": "0011"})
+        ok, reason = _verify_signature(bad_key)
+        assert not ok
+        assert "malformed" in reason
+
+    def test_wrong_key_fails(self):
+        """Verifying with a different key pair's public key should fail."""
+        other_kp = Ed25519KeyPair.generate()
+        att = _make_attestation(signed=False)
+        signed = sign_attestation(att, _TEST_KEY_PAIR)
+        # Replace the public key with a different one
+        swapped = signed.model_copy(update={"public_key": other_kp.public_key_hex})
+        ok, reason = _verify_signature(swapped)
+        assert not ok
+
+    def test_validate_tool_rejects_invalid_signature(self):
+        """validate_tool should produce a violation for a bad signature."""
+        v = SupplyChainValidator(SupplyChainPolicy())
+        signed = _make_attestation(signed=True)
+        tampered = signed.model_copy(update={"content_hash": "sha256:TAMPERED"})
+        result = v.validate_tool(tampered)
+        assert not result.valid
+        assert any("signature verification failed" in v for v in result.violations)
+
+    def test_validate_tool_accepts_valid_signature(self):
+        """validate_tool should pass a properly signed attestation."""
+        v = SupplyChainValidator(SupplyChainPolicy())
+        signed = _make_attestation(signed=True)
+        result = v.validate_tool(signed)
+        assert result.valid
+
+    def test_unsigned_attestation_policy_not_required(self):
+        """When attestation is not required, unsigned tools pass validation."""
+        v = SupplyChainValidator(SupplyChainPolicy(require_attestation=False))
+        att = _make_attestation(signed=False)
+        result = v.validate_tool(att)
+        assert result.valid
+
+    def test_canonical_content_deterministic(self):
+        """Same attestation should always produce the same canonical bytes."""
+        att = _make_attestation(signed=False)
+        c1 = _canonical_content(att)
+        c2 = _canonical_content(att)
+        assert c1 == c2
+
+    def test_canonical_content_differs_for_different_attestations(self):
+        """Different attestations should produce different canonical bytes."""
+        att_a = _make_attestation(name="alpha", signed=False)
+        att_b = _make_attestation(name="bravo", signed=False)
+        assert _canonical_content(att_a) != _canonical_content(att_b)
+
+    def test_sign_attestation_does_not_mutate_original(self):
+        """sign_attestation should return a new object, not mutate the input."""
+        att = _make_attestation(signed=False)
+        assert att.signature is None
+        assert att.public_key is None
+        signed = sign_attestation(att, _TEST_KEY_PAIR)
+        assert att.signature is None  # original unchanged
+        assert signed.signature is not None

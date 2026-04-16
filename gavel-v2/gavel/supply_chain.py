@@ -12,12 +12,15 @@ Standards coverage:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, computed_field
+
+from gavel.crypto import Ed25519KeyPair, CryptoUnavailableError, _validate_hex, _CRYPTO_BACKEND
 
 log = logging.getLogger("gavel.supply_chain")
 
@@ -30,7 +33,8 @@ class ToolAttestation(BaseModel):
     tool_version: str
     publisher: str
     content_hash: str                          # SHA-256 of tool binary/source
-    signature: Optional[str] = None            # Publisher's cryptographic signature
+    signature: Optional[str] = None            # Publisher's cryptographic signature (hex)
+    public_key: Optional[str] = None           # Publisher's Ed25519 public key (hex)
     attested_at: datetime
     expires_at: Optional[datetime] = None
     attestation_url: Optional[str] = None      # Where to verify externally
@@ -41,6 +45,81 @@ class ToolAttestation(BaseModel):
             return False
         now = now or datetime.now(timezone.utc)
         return now >= self.expires_at
+
+
+def _canonical_content(attestation: ToolAttestation) -> bytes:
+    """Build a deterministic byte representation of an attestation for signing.
+
+    Includes all fields except ``signature`` itself, serialised as sorted JSON
+    with ISO-format datetimes.  The result is stable across Python versions as
+    long as the field values are identical.
+    """
+    data = {
+        "tool_name": attestation.tool_name,
+        "tool_version": attestation.tool_version,
+        "publisher": attestation.publisher,
+        "content_hash": attestation.content_hash,
+        "public_key": attestation.public_key,
+        "attested_at": attestation.attested_at.isoformat(),
+        "expires_at": attestation.expires_at.isoformat() if attestation.expires_at else None,
+        "attestation_url": attestation.attestation_url,
+    }
+    return json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def sign_attestation(attestation: ToolAttestation, key_pair: Ed25519KeyPair) -> ToolAttestation:
+    """Sign an attestation with an Ed25519 key pair.
+
+    Returns a *new* ``ToolAttestation`` with ``public_key`` and ``signature``
+    populated.  The original is not mutated.
+    """
+    # Set public_key first so it is part of the canonical content
+    updated = attestation.model_copy(update={"public_key": key_pair.public_key_hex})
+    content = _canonical_content(updated)
+    sig_bytes = key_pair.sign(content)
+    return updated.model_copy(update={"signature": sig_bytes.hex()})
+
+
+def _verify_signature(attestation: ToolAttestation) -> tuple[bool, str]:
+    """Verify the Ed25519 signature on an attestation.
+
+    Returns ``(ok, reason)`` where *ok* is True when the signature is valid
+    and *reason* explains failures.
+    """
+    if attestation.signature is None:
+        return False, "missing signature"
+    if attestation.public_key is None:
+        return False, "missing public_key"
+
+    # Graceful degradation when no crypto backend is installed
+    if _CRYPTO_BACKEND == "stub":
+        log.warning(
+            "Crypto backend unavailable — skipping signature verification for '%s'",
+            attestation.tool_name,
+        )
+        return True, "crypto unavailable, verification skipped"
+
+    try:
+        sig_bytes = _validate_hex(attestation.signature, 64, "attestation signature")
+        pub_bytes = _validate_hex(attestation.public_key, 32, "attestation public_key")
+    except ValueError as exc:
+        return False, f"malformed key/signature: {exc}"
+
+    content = _canonical_content(attestation)
+    try:
+        valid = Ed25519KeyPair.verify(pub_bytes, content, sig_bytes)
+    except CryptoUnavailableError:
+        log.warning(
+            "Crypto backend unavailable — skipping signature verification for '%s'",
+            attestation.tool_name,
+        )
+        return True, "crypto unavailable, verification skipped"
+    except Exception as exc:
+        return False, f"verification error: {exc}"
+
+    if not valid:
+        return False, "signature does not match attestation content"
+    return True, "valid"
 
 
 class DependencyRecord(BaseModel):
@@ -119,6 +198,12 @@ class SupplyChainValidator:
         # Signature check
         if self.policy.require_attestation and attestation.signature is None:
             violations.append(f"Tool '{attestation.tool_name}' has no signature")
+        elif attestation.signature is not None:
+            sig_ok, sig_reason = _verify_signature(attestation)
+            if not sig_ok:
+                violations.append(
+                    f"Tool '{attestation.tool_name}' signature verification failed: {sig_reason}"
+                )
 
         # Expiry check
         if attestation.is_expired(now):

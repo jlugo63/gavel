@@ -59,6 +59,31 @@ from gavel.circuit_breaker import CircuitBreaker
 from gavel.prompt_injection import PromptInjectionDetector
 from gavel.identity import MutualVerifier, IdentityRegistry
 from gavel.lineage import LineageGraph, LineageTracker
+from gavel.deception import DeceptionDetector, DeceptionFinding, DeceptionSignal
+from gavel.model_lifecycle import (
+    ModelRegistry,
+    ModelRecord,
+    ModelStatus,
+    ModelBindingRegistry,
+    AgentModelBinding,
+    ModelLifecycleChecker,
+    ModelCheckResult,
+    FleetModelHealthReport,
+    VersionDriftReport,
+    ModelGovernanceEventType,
+    create_governance_event as create_model_governance_event,
+)
+from gavel.fairness import (
+    FairnessMonitor,
+    FairnessMetric,
+    FairnessBaseline,
+    FairnessDriftReport,
+    FairnessViolation,
+    FairnessViolationSeverity,
+    FairnessSummary,
+    DecisionOutcome,
+    ProtectedAttribute,
+)
 
 __all__ = [
     # Core governance
@@ -135,4 +160,30 @@ __all__ = [
     # Lineage
     "LineageGraph",
     "LineageTracker",
+    # Deception detection
+    "DeceptionDetector",
+    "DeceptionFinding",
+    "DeceptionSignal",
+    # Model lifecycle
+    "ModelRegistry",
+    "ModelRecord",
+    "ModelStatus",
+    "ModelBindingRegistry",
+    "AgentModelBinding",
+    "ModelLifecycleChecker",
+    "ModelCheckResult",
+    "FleetModelHealthReport",
+    "VersionDriftReport",
+    "ModelGovernanceEventType",
+    "create_model_governance_event",
+    # Fairness
+    "FairnessMonitor",
+    "FairnessMetric",
+    "FairnessBaseline",
+    "FairnessDriftReport",
+    "FairnessViolation",
+    "FairnessViolationSeverity",
+    "FairnessSummary",
+    "DecisionOutcome",
+    "ProtectedAttribute",
 ]
