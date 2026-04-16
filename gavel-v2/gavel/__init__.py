@@ -73,6 +73,25 @@ from gavel.model_lifecycle import (
     ModelGovernanceEventType,
     create_governance_event as create_model_governance_event,
 )
+from gavel.events import (
+    DashboardEvent,
+    EventBus,
+    EventBusProtocol,
+    EventRetentionPolicy,
+    InProcessEventBus,
+    PersistentEventBus,
+    RedisEventBus,
+    create_event_bus,
+)
+from gavel.observability import (
+    MetricType,
+    MetricDefinition,
+    MetricsRegistry,
+    PrometheusExporter,
+    MetricsMiddleware,
+    metrics_router,
+    registry as metrics_registry,
+)
 from gavel.fairness import (
     FairnessMonitor,
     FairnessMetric,
@@ -176,6 +195,15 @@ __all__ = [
     "VersionDriftReport",
     "ModelGovernanceEventType",
     "create_model_governance_event",
+    # Events
+    "DashboardEvent",
+    "EventBus",
+    "EventBusProtocol",
+    "EventRetentionPolicy",
+    "InProcessEventBus",
+    "PersistentEventBus",
+    "RedisEventBus",
+    "create_event_bus",
     # Fairness
     "FairnessMonitor",
     "FairnessMetric",
@@ -186,4 +214,12 @@ __all__ = [
     "FairnessSummary",
     "DecisionOutcome",
     "ProtectedAttribute",
+    # Observability
+    "MetricType",
+    "MetricDefinition",
+    "MetricsRegistry",
+    "PrometheusExporter",
+    "MetricsMiddleware",
+    "metrics_router",
+    "metrics_registry",
 ]

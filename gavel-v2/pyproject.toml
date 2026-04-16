@@ -74,10 +74,11 @@ packages = ["gavel"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration and not redis_integration'"
+addopts = "-m 'not integration and not redis_integration and not stability'"
 markers = [
     "integration: marks tests requiring real Postgres (deselect with -m 'not integration')",
     "redis_integration: marks tests requiring real Redis (deselect with -m 'not redis_integration')",
+    "stability: marks long-running stability tests (deselect with -m 'not stability')",
 ]
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
