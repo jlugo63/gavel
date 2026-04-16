@@ -42,6 +42,7 @@ services:
       - .env
     environment:
       - GAVEL_DB_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required (see .env.example)}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (see .env.example)}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?POSTGRES_DB is required (see .env.example)}
+      - GAVEL_SKIP_MIGRATE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -68,6 +69,7 @@ services:
     environment:
       - GAVEL_API_URL=http://gavel-gateway:8100
       - GAVEL_DB_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required (see .env.example)}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (see .env.example)}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:?POSTGRES_DB is required (see .env.example)}
+      - GAVEL_SKIP_MIGRATE=1
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +78,7 @@ services:
       gavel-gateway:
         condition: service_healthy
     restart: unless-stopped
-    command: ["uvicorn", "gavel.gateway:app", "--host", "0.0.0.0", "--port", "8200"]
+    command: ["uvicorn", "gavel.proxy:app", "--host", "0.0.0.0", "--port", "8200"]
 
 volumes:
   gavel-data:

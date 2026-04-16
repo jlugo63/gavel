@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -193,9 +195,43 @@ async def _periodic_cleanup(interval_seconds: int = 300, ttl_seconds: int = DEFA
             _cleanup_log.exception("Error during periodic chain cleanup")
 
 
+async def _auto_migrate() -> None:
+    """Run Alembic migrations at startup so a fresh ``uvicorn`` just works.
+
+    Skipped when ``GAVEL_SKIP_MIGRATE=1`` (e.g. in docker-compose where the
+    separate ``gavel-migrate`` service handles it).
+
+    Runs alembic in a subprocess because Alembic's async env.py calls
+    ``asyncio.run()`` which conflicts with uvicorn's running event loop.
+    """
+    if os.environ.get("GAVEL_SKIP_MIGRATE", "").strip() in ("1", "true", "yes"):
+        return
+
+    log = logging.getLogger("gavel.migrate")
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    if not os.path.exists(alembic_ini):
+        log.debug("alembic.ini not found — skipping auto-migrate")
+        return
+
+    log.info("Running auto-migrate (set GAVEL_SKIP_MIGRATE=1 to disable)")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "alembic", "upgrade", "head",
+        cwd=os.path.dirname(alembic_ini),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        log.error("Auto-migrate failed (exit %d): %s", proc.returncode, stderr.decode())
+        raise RuntimeError(f"Alembic migration failed: {stderr.decode()}")
+    log.info("Auto-migrate complete")
+
+
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI):
     """Start supervisor on startup, stop on shutdown."""
+    await _auto_migrate()
+
     sm = get_sessionmaker()
     from gavel.db.repositories import AgentRepository
     from gavel.agents import AgentRegistry
