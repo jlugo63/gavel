@@ -15,10 +15,10 @@ ARG ADMIN_MODE=false
 WORKDIR /app
 
 # Install dependencies first (layer caching)
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md alembic.ini ./
 COPY gavel/ gavel/
 
-RUN pip install --no-cache-dir -e ".[api]"
+RUN pip install --no-cache-dir -e ".[api,db]"
 
 # Remove admin module when ADMIN_MODE is disabled
 RUN if [ "$ADMIN_MODE" = "false" ] && [ -f gavel/admin.py ]; then \
@@ -43,6 +43,7 @@ WORKDIR /app
 # Copy installed packages and app from builder
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin/uvicorn /usr/local/bin/uvicorn
+COPY --from=builder /usr/local/bin/alembic /usr/local/bin/alembic
 COPY --from=builder /app /app
 
 # Optional persistent data directory

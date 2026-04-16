@@ -25,12 +25,17 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-import threading
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from gavel.db.repositories import (
+        EnrollmentRepository,
+        GovernanceTokenRepository,
+    )
 
 log = logging.getLogger("gavel.enrollment")
 
@@ -191,9 +196,73 @@ _RISK_CATEGORY_KEYWORDS: dict[HighRiskCategory, list[str]] = {
     HighRiskCategory.JUSTICE: ["sentencing", "court analysis", "dispute resolution", "judicial", "parole decision"],
 }
 
+import re as _re
+
+# ── Article 5 Prohibited Practice Detection ──────────────────
+#
+# Each Article 5 prohibition is captured by a set of regex patterns that
+# look for co-occurring semantic components, not single bigram keywords.
+# This catches naturally-phrased descriptions (e.g. from LLM-generated
+# enrollment applications) that paraphrase the prohibition without using
+# the Act's exact wording.
+#
+# Patterns are compiled once at module load for performance.
+
+_PROHIBITED_PATTERNS: list[tuple[str, list["_re.Pattern[str]"]]] = []
+
+def _compile_prohibited() -> list[tuple[str, list["_re.Pattern[str]"]]]:
+    """Build and compile Article 5 pattern families."""
+    specs: list[tuple[str, list[str]]] = [
+        # Art. 5(1)(a) — Subliminal manipulation
+        ("Art. 5(1)(a): Subliminal techniques to materially distort behavior", [
+            r"subliminal",                                           # any mention
+            r"imperceptib\w*.*\b(influenc|manipulat|nudg|persuad|cue|modify)",
+            r"\b(influenc|manipulat)\w*.*\bwithout\b.*\b(notic|aware|conscious|perceiv)",
+        ]),
+        # Art. 5(1)(b) — Exploitation of vulnerabilities
+        ("Art. 5(1)(b): Exploiting vulnerabilities of specific groups (age, disability)", [
+            r"exploit\w*\s+(vulnerab|disab|elder|minor|child|infirm)",
+            r"(target|manipulat)\w*.*\b(vulnerab|disab|elderly|minor|child)\b",
+        ]),
+        # Art. 5(1)(c) — Social scoring
+        ("Art. 5(1)(c): Social scoring by public authorities or on their behalf", [
+            r"social\s+(scor|credit)",                               # exact phrase
+            r"(rank|scor|rat[ei]|classif|assess)\w*.*\bcitizen\w*.*\b(behavio|conduct|social)",
+            r"citizen\w*.*\b(rank|scor|eligib)\w*.*\b(benefit|service|allocat|housing|municipal)",
+            r"(social\s+behavio|public\s+record).*\b(rank|scor|allocat|eligib)",
+        ]),
+        # Art. 5(1)(d) — Real-time remote biometric identification
+        ("Art. 5(1)(d): Real-time remote biometric identification in public spaces", [
+            r"real.?time.*biometric.*identif",                       # exact phrase
+            r"mass\s+surveillance",
+            r"(facial\s+recogni|face\s+match)\w*.*\b(public|cctv|crowd|surveillance|watchlist)",
+            r"real.?time.*identif\w*.*\b(face|biometric|individual)",
+            r"(cctv|surveillance|live\b.*\bvideo).*\b(identif|recogni|match)\w*.*\b(face|individual|watchlist)",
+        ]),
+        # Art. 5(1)(d) — Individual predictive policing
+        ("Art. 5(1)(d): Individual predictive policing based solely on profiling", [
+            r"predictive\s+policing.*individual",
+            r"predict\w*.*\bcrim\w*.*\b(individual|profil|person)",
+        ]),
+        # Art. 5(1)(f) — Emotion recognition in workplace / education
+        ("Art. 5(1)(f): Emotion recognition in workplace or education institutions", [
+            r"emotion\s+recognition\s+(workplace|education)",        # exact phrase
+            r"(emotion|sentiment|facial\s+express|vocal\s+ton)\w*.*\b(employ|workplace|hr\b|meeting|staff|corporate|office)",
+            r"(employ|workplace|hr\b|staff|corporate).*\b(emotion|sentiment|facial\s+express)",
+            r"(emotion|sentiment)\w*.*\b(student|classroom|school|university|education)",
+        ]),
+    ]
+    return [
+        (citation, [_re.compile(p, _re.IGNORECASE | _re.DOTALL) for p in patterns])
+        for citation, patterns in specs
+    ]
+
+_PROHIBITED_PATTERNS = _compile_prohibited()
+
+# Legacy keyword list kept for classify_risk_category fast-path.
 _PROHIBITED_KEYWORDS: list[str] = [
     "social scoring", "social credit",
-    "subliminal manipulation", "subliminal technique",
+    "subliminal manipulation", "subliminal technique", "subliminal",
     "exploit vulnerability", "exploit disabled", "exploit elderly", "exploit minor",
     "real-time biometric identification", "mass surveillance",
     "predictive policing individual",
@@ -205,9 +274,14 @@ def classify_risk_category(purpose: PurposeDeclaration, capabilities: Capability
     """Auto-classify agent into EU AI Act Annex III risk category."""
     text = f"{purpose.summary} {purpose.operational_scope}".lower()
 
-    # Check prohibited first
+    # Check prohibited first — keyword fast path
     for keyword in _PROHIBITED_KEYWORDS:
         if keyword in text:
+            return HighRiskCategory.PROHIBITED
+
+    # Regex second pass — catches paraphrased descriptions
+    for _citation, patterns in _PROHIBITED_PATTERNS:
+        if any(p.search(text) for p in patterns):
             return HighRiskCategory.PROHIBITED
 
     # Check high-risk categories
@@ -220,14 +294,20 @@ def classify_risk_category(purpose: PurposeDeclaration, capabilities: Capability
 
 
 def detect_prohibited_practices(app: "EnrollmentApplication") -> list[str]:
-    """Detect EU AI Act Article 5 prohibited practices in an enrollment application."""
+    """Detect EU AI Act Article 5 prohibited practices in an enrollment application.
+
+    Uses two detection layers:
+      1. Fast keyword substring check (catches exact phrasing).
+      2. Regex pattern families (catches LLM-generated paraphrases).
+    """
     violations = []
     text = f"{app.purpose.summary} {app.purpose.operational_scope} {app.display_name}".lower()
 
+    # Layer 1: keyword checks (fast, covers exact Act wording)
     if any(k in text for k in ["social scoring", "social credit"]):
         violations.append("Art. 5(1)(c): Social scoring by public authorities or on their behalf")
 
-    if any(k in text for k in ["subliminal manipulation", "subliminal technique"]):
+    if any(k in text for k in ["subliminal manipulation", "subliminal technique", "subliminal"]):
         violations.append("Art. 5(1)(a): Subliminal techniques to materially distort behavior")
 
     if any(k in text for k in ["exploit vulnerability", "exploit disabled", "exploit elderly", "exploit minor"]):
@@ -241,6 +321,11 @@ def detect_prohibited_practices(app: "EnrollmentApplication") -> list[str]:
 
     if any(k in text for k in ["emotion recognition workplace", "emotion recognition education"]):
         violations.append("Art. 5(1)(f): Emotion recognition in workplace or education institutions")
+
+    # Layer 2: regex pattern families (catches paraphrases)
+    for citation, patterns in _PROHIBITED_PATTERNS:
+        if citation not in violations and any(p.search(text) for p in patterns):
+            violations.append(citation)
 
     # Check capabilities for biometric indicators
     tools_text = " ".join(app.capabilities.tools).lower()
@@ -329,13 +414,17 @@ class EnrollmentValidator:
 # ── Enrollment Registry ────────────────────────────────────────
 
 class EnrollmentRegistry:
-    """Stores and manages enrollment records."""
+    """Stores and manages enrollment records.
 
-    def __init__(self):
-        self._records: dict[str, EnrollmentRecord] = {}
+    Storage is backed by :class:`gavel.db.repositories.EnrollmentRepository`.
+    Validation logic stays in :class:`EnrollmentValidator`.
+    """
+
+    def __init__(self, repo: "EnrollmentRepository"):
+        self._repo = repo
         self._validator = EnrollmentValidator()
 
-    def submit(self, application: EnrollmentApplication) -> EnrollmentRecord:
+    async def submit(self, application: EnrollmentApplication) -> EnrollmentRecord:
         """Submit an enrollment application. Validates and returns the record."""
         passed, violations = self._validator.validate(application)
 
@@ -347,7 +436,7 @@ class EnrollmentRegistry:
             violations=violations,
         )
 
-        self._records[application.agent_id] = record
+        await self._repo.save(record)
 
         if passed:
             log.info("Agent %s enrolled successfully (owner: %s)", application.agent_id, application.owner)
@@ -359,44 +448,47 @@ class EnrollmentRegistry:
 
         return record
 
-    def is_enrolled(self, agent_id: str) -> bool:
+    async def is_enrolled(self, agent_id: str) -> bool:
         """Check if an agent has completed enrollment."""
-        record = self._records.get(agent_id)
+        record = await self._repo.get(agent_id)
         return record is not None and record.status == EnrollmentStatus.ENROLLED
 
-    def get(self, agent_id: str) -> Optional[EnrollmentRecord]:
-        return self._records.get(agent_id)
+    async def get(self, agent_id: str) -> Optional[EnrollmentRecord]:
+        return await self._repo.get(agent_id)
 
-    def get_all(self) -> list[EnrollmentRecord]:
-        return list(self._records.values())
+    async def get_all(self) -> list[EnrollmentRecord]:
+        return await self._repo.list_all()
 
-    def reject(self, agent_id: str, reason: str, reviewed_by: str) -> Optional[EnrollmentRecord]:
+    async def reject(self, agent_id: str, reason: str, reviewed_by: str) -> Optional[EnrollmentRecord]:
         """Reject an enrollment application."""
-        record = self._records.get(agent_id)
+        record = await self._repo.get(agent_id)
         if not record:
             return None
         record.status = EnrollmentStatus.REJECTED
         record.rejection_reason = reason
         record.reviewed_by = reviewed_by
+        await self._repo.save(record)
         return record
 
-    def approve_manual(self, agent_id: str, reviewed_by: str) -> Optional[EnrollmentRecord]:
+    async def approve_manual(self, agent_id: str, reviewed_by: str) -> Optional[EnrollmentRecord]:
         """Manually approve an incomplete enrollment (override)."""
-        record = self._records.get(agent_id)
+        record = await self._repo.get(agent_id)
         if not record:
             return None
         record.status = EnrollmentStatus.ENROLLED
         record.enrolled_at = datetime.now(timezone.utc)
         record.reviewed_by = reviewed_by
+        await self._repo.save(record)
         log.info("Agent %s manually enrolled by %s", agent_id, reviewed_by)
         return record
 
-    def suspend(self, agent_id: str) -> Optional[EnrollmentRecord]:
+    async def suspend(self, agent_id: str) -> Optional[EnrollmentRecord]:
         """Suspend an enrolled agent's enrollment."""
-        record = self._records.get(agent_id)
+        record = await self._repo.get(agent_id)
         if not record:
             return None
         record.status = EnrollmentStatus.SUSPENDED
+        await self._repo.save(record)
         return record
 
 
@@ -446,16 +538,13 @@ def _generate_governance_token(agent_id: str, machine_id: str, pid: int) -> str:
 class TokenManager:
     """Manages governance token lifecycle: issue, validate, revoke.
 
-    Thread-safe in-memory store for governance tokens. In production
-    this would be backed by a database or distributed cache.
+    Storage is backed by :class:`gavel.db.repositories.GovernanceTokenRepository`.
     """
 
-    def __init__(self) -> None:
-        self._tokens: dict[str, GovernanceToken] = {}   # token string -> GovernanceToken
-        self._by_did: dict[str, GovernanceToken] = {}    # agent_did -> GovernanceToken
-        self._lock = threading.Lock()
+    def __init__(self, repo: "GovernanceTokenRepository") -> None:
+        self._repo = repo
 
-    def issue(
+    async def issue(
         self,
         agent_id: str,
         machine_id: str = "local",
@@ -463,18 +552,7 @@ class TokenManager:
         ttl_seconds: int = DEFAULT_TOKEN_TTL_SECONDS,
         scope: Optional[dict[str, Any]] = None,
     ) -> GovernanceToken:
-        """Issue a new governance token for an enrolled agent.
-
-        Args:
-            agent_id: The enrolled agent's ID.
-            machine_id: Host machine identifier for binding.
-            pid: OS process ID for binding.
-            ttl_seconds: Token lifetime in seconds (default 3600 = 1 hour).
-            scope: Optional scope dict describing what the token permits.
-
-        Returns:
-            A GovernanceToken with a unique gvl_tok_ prefixed SHA-256 token.
-        """
+        """Issue a new governance token for an enrolled agent."""
         agent_did = _generate_did(agent_id)
         token_str = _generate_governance_token(agent_id, machine_id, pid)
         now = datetime.now(timezone.utc)
@@ -491,35 +569,23 @@ class TokenManager:
             scope=scope,
         )
 
-        with self._lock:
-            self._tokens[token_str] = gov_token
-            self._by_did[agent_did] = gov_token
+        await self._repo.save(gov_token)
 
         log.info("Governance token issued for agent %s (DID: %s, TTL: %ds)", agent_id, agent_did, ttl_seconds)
         return gov_token
 
-    def validate(self, token: str, required_scope: Optional[str] = None) -> tuple[bool, str, Optional[GovernanceToken]]:
+    async def validate(
+        self, token: str, required_scope: Optional[str] = None
+    ) -> tuple[bool, str, Optional[GovernanceToken]]:
         """Validate a governance token.
 
-        Checks:
-        1. Token format (gvl_tok_ prefix)
-        2. Token exists in store
-        3. Token has not been revoked
-        4. Token has not expired
-        5. If required_scope is provided, token scope must include it
-
-        Args:
-            token: The token string to validate.
-            required_scope: Optional scope key that must be present in the token's scope.
-
-        Returns:
-            Tuple of (valid: bool, reason: str, token_record: GovernanceToken | None).
+        Returns ``(valid, reason, token_record)``. The 3-tuple shape is
+        locked — ``reason`` is always a human-readable string.
         """
         if not token.startswith(TOKEN_PREFIX):
             return False, "Invalid token format: missing gvl_tok_ prefix", None
 
-        with self._lock:
-            gov_token = self._tokens.get(token)
+        gov_token = await self._repo.get(token)
 
         if gov_token is None:
             return False, "Token not recognized", None
@@ -527,7 +593,10 @@ class TokenManager:
         if gov_token.revoked:
             return False, "Token has been revoked", gov_token
 
-        if datetime.now(timezone.utc) >= gov_token.expires_at:
+        expires = gov_token.expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) >= expires:
             return False, "Token has expired", gov_token
 
         if required_scope and gov_token.scope:
@@ -536,33 +605,59 @@ class TokenManager:
 
         return True, "valid", gov_token
 
-    def revoke(self, agent_did: str) -> Optional[GovernanceToken]:
-        """Revoke a governance token by agent DID, immediately invalidating it.
+    async def revoke(self, agent_did: str) -> Optional[GovernanceToken]:
+        """Revoke every governance token issued to ``agent_did``.
 
-        Args:
-            agent_did: The DID of the agent whose token should be revoked.
-
-        Returns:
-            The revoked GovernanceToken, or None if no token found for that DID.
+        Flips ``revoked=True`` on each row so subsequent validations
+        can report ``revoked`` rather than ``not recognized``. Returns
+        the revoked token record (first one) for the legacy callers
+        that expect ``Optional[GovernanceToken]``.
         """
-        with self._lock:
-            gov_token = self._by_did.get(agent_did)
-            if gov_token is None:
-                return None
-            gov_token.revoked = True
+        tokens = await self._repo.get_by_agent(agent_did)
+        if not tokens:
+            return None
+
+        await self._repo.mark_revoked(agent_did)
+        gov_token = tokens[0]
+        gov_token.revoked = True
 
         log.info("Governance token revoked for DID: %s", agent_did)
         return gov_token
 
-    def is_valid(self, token: str) -> bool:
-        """Quick boolean check: is this token currently valid?
-
-        Returns True only if the token exists, is not revoked, and has not expired.
-        """
-        valid, _, _ = self.validate(token)
+    async def is_valid(self, token: str) -> bool:
+        """Quick boolean check: is this token currently valid?"""
+        valid, _, _ = await self.validate(token)
         return valid
 
-    def get_by_did(self, agent_did: str) -> Optional[GovernanceToken]:
-        """Look up a token by agent DID."""
-        with self._lock:
-            return self._by_did.get(agent_did)
+    async def get_by_did(self, agent_did: str) -> Optional[GovernanceToken]:
+        """Look up a token by agent DID.
+
+        The repo returns a list (multiple tokens per DID are possible in
+        theory, but all legacy call sites assume a single active token
+        per DID). This helper preserves the single-token-per-DID
+        convention: returns the first token or ``None``.
+        """
+        tokens = await self._repo.get_by_agent(agent_did)
+        if not tokens:
+            return None
+        return tokens[0]
+
+    async def cleanup_expired(self) -> int:
+        """Remove expired and revoked tokens.
+
+        Runs two repo deletes so either condition alone is sufficient for
+        a row to be swept. ``mark_revoked`` leaves the row in place so
+        ``validate`` can report a ``revoked`` reason; this method garbage-
+        collects those rows once the caller no longer needs that signal.
+        """
+        now = datetime.now(timezone.utc)
+        expired = await self._repo.delete_expired(now)
+        revoked = await self._repo.delete_revoked()
+        total = expired + revoked
+        if total:
+            log.info(
+                "Token cleanup: removed %d expired + %d revoked tokens",
+                expired,
+                revoked,
+            )
+        return total

@@ -78,7 +78,7 @@ def run():
 
     # Check gateway
     try:
-        r = http.get(f"{GATEWAY}/constitution", timeout=3)
+        r = http.get(f"{GATEWAY}/v1/constitution", timeout=3)
         n = len(r.json().get("invariants", []))
         print(f"  Gateway:  {GATEWAY} ({n} invariants loaded)")
     except Exception:
@@ -106,7 +106,7 @@ def run():
     _llm(llm1)
 
     print("\n  Submitting proposal to Gavel gateway...")
-    resp = http.post(f"{GATEWAY}/propose", json={
+    resp = http.post(f"{GATEWAY}/v1/propose", json={
         "actor_id": "agent:code-analyzer",
         "goal": "Deploy hotfix for race condition causing duplicate charges in checkout.py",
         "action_type": "CODE_DEPLOY",
@@ -129,7 +129,7 @@ def run():
     _step(2, "agent:code-analyzer", "proposer -> approver?",
           "Same agent attempts to approve its own proposal...")
 
-    resp = http.post(f"{GATEWAY}/approve", json={
+    resp = http.post(f"{GATEWAY}/v1/approve", json={
         "chain_id": chain_id,
         "actor_id": "agent:code-analyzer",
         "decision": "APPROVED",
@@ -144,7 +144,7 @@ def run():
     _step(3, "agent:infra-reviewer", "reviewer",
           "Independent agent reviews governance chain...")
 
-    chain_data = http.get(f"{GATEWAY}/chain/{chain_id}").json()
+    chain_data = http.get(f"{GATEWAY}/v1/chain/{chain_id}").json()
     events_ctx = "\n".join(
         f"- {e['type']}: {e['actor']} ({e['role']})"
         + (f" risk={e['payload']['risk_score']}" if "risk_score" in e.get("payload", {}) else "")
@@ -165,7 +165,7 @@ def run():
 
     decision2 = "ATTEST" if "ATTEST" in llm2.upper() else "REJECT"
     print(f"\n  Submitting attestation: {decision2}")
-    resp = http.post(f"{GATEWAY}/attest", json={
+    resp = http.post(f"{GATEWAY}/v1/attest", json={
         "chain_id": chain_id, "actor_id": "agent:infra-reviewer",
         "decision": decision2, "rationale": llm2,
     })
@@ -177,7 +177,7 @@ def run():
     _step(4, "agent:deploy-authority", "approver",
           "Third agent reviews full chain for final approval...")
 
-    chain_data = http.get(f"{GATEWAY}/chain/{chain_id}").json()
+    chain_data = http.get(f"{GATEWAY}/v1/chain/{chain_id}").json()
     events_ctx2 = "\n".join(
         f"- {e['type']}: {e['actor']} ({e['role']})"
         for e in chain_data.get("events", [])
@@ -198,7 +198,7 @@ def run():
 
     decision3 = "APPROVED" if "APPROVED" in llm3.upper() else "DENIED"
     print(f"\n  Submitting decision: {decision3}")
-    resp = http.post(f"{GATEWAY}/approve", json={
+    resp = http.post(f"{GATEWAY}/v1/approve", json={
         "chain_id": chain_id, "actor_id": "agent:deploy-authority",
         "decision": decision3, "rationale": llm3,
     })
@@ -213,7 +213,7 @@ def run():
     _step(5, "system", "verification",
           "Exporting artifact and verifying offline...")
 
-    artifact_resp = http.get(f"{GATEWAY}/chain/{chain_id}/artifact")
+    artifact_resp = http.get(f"{GATEWAY}/v1/chain/{chain_id}/artifact")
     artifact = artifact_resp.json()
 
     print(f"    Chain:      {artifact['chain_id']}")
@@ -221,7 +221,7 @@ def run():
     print(f"    Events:     {artifact['event_count']}")
     print(f"    Integrity:  {artifact['integrity']}")
 
-    verify_resp = http.post(f"{GATEWAY}/verify-artifact", json=artifact)
+    verify_resp = http.post(f"{GATEWAY}/v1/verify-artifact", json=artifact)
     vresult = verify_resp.json()
     if vresult["valid"]:
         _ok(f"Artifact verified: {vresult['events']} events, hash chain intact")

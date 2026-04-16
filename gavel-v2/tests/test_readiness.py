@@ -148,7 +148,7 @@ class TestReadinessChecker:
 class TestReadinessWithTenant:
     def test_tenant_check_pass(self):
         checker = ReadinessChecker()
-        from gavel.tenants import TenantContext, TenantRegistry
+        from gavel.tenancy import OrgTenantContext as TenantContext, OrgTenantRegistry as TenantRegistry
         reg = TenantRegistry()
         org = reg.create_org("Acme", billing_owner="x")
         team = reg.create_team(org.org_id, "Eng", owner="y")
@@ -165,7 +165,7 @@ class TestReadinessWithTenant:
 
     def test_tenant_check_fails_for_suspended_org(self):
         checker = ReadinessChecker()
-        from gavel.tenants import TenantContext, TenantRegistry
+        from gavel.tenancy import OrgTenantContext as TenantContext, OrgTenantRegistry as TenantRegistry
         reg = TenantRegistry()
         org = reg.create_org("Acme", billing_owner="x")
         team = reg.create_team(org.org_id, "Eng", owner="y")

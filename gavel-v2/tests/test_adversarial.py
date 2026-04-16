@@ -13,7 +13,12 @@ import os
 
 import pytest
 
-from gavel.admin import AdminAgent, AdminAuditViolation, SecurityViolation
+from gavel.admin import (
+    AdminAgent,
+    AdminAuditViolation,
+    SecurityViolation,
+    _reset_admin_mode_snapshot_for_tests,
+)
 from gavel.agents import AgentRecord, AgentStatus
 from gavel.chain import ChainStatus, EventType, GovernanceChain
 from gavel.enrollment import (
@@ -24,7 +29,7 @@ from gavel.enrollment import (
 )
 from gavel.tiers import AutonomyTier
 
-from conftest import _valid_application
+from conftest import _valid_application, _make_enrollment_registry, _make_token_manager
 
 
 # ══════════════════════════════════════════════════════════════
@@ -35,36 +40,36 @@ from conftest import _valid_application
 class TestTokenForgery:
     """ATF S-2 / Article II.2: Forged tokens must be rejected."""
 
-    def test_forged_token_prefix_wrong(self):
-        tm = TokenManager()
-        valid, reason, _ = tm.validate("forged_token_value")
+    async def test_forged_token_prefix_wrong(self):
+        tm = _make_token_manager()
+        valid, reason, _ = await tm.validate("forged_token_value")
         assert valid is False
         assert "format" in reason.lower()
 
-    def test_forged_token_correct_prefix(self):
+    async def test_forged_token_correct_prefix(self):
         """Attacker guesses the prefix but not the hash."""
-        tm = TokenManager()
+        tm = _make_token_manager()
         fake = f"{TOKEN_PREFIX}{'a' * 64}"
-        valid, reason, _ = tm.validate(fake)
+        valid, reason, _ = await tm.validate(fake)
         assert valid is False
         assert "not recognized" in reason.lower()
 
-    def test_replay_revoked_token(self):
+    async def test_replay_revoked_token(self):
         """Attacker captures a valid token, we revoke it, attacker replays."""
-        tm = TokenManager()
-        token = tm.issue("agent:legit")
+        tm = _make_token_manager()
+        token = await tm.issue("agent:legit")
         # Token works initially
-        assert tm.is_valid(token.token) is True
+        assert await tm.is_valid(token.token) is True
         # Revoke
-        tm.revoke(token.agent_did)
+        await tm.revoke(token.agent_did)
         # Replay attack
-        assert tm.is_valid(token.token) is False
+        assert await tm.is_valid(token.token) is False
 
-    def test_expired_token_replay(self):
+    async def test_expired_token_replay(self):
         """Attacker captures a token, waits for expiry, tries to use it."""
-        tm = TokenManager()
-        token = tm.issue("agent:legit", ttl_seconds=0)
-        assert tm.is_valid(token.token) is False
+        tm = _make_token_manager()
+        token = await tm.issue("agent:legit", ttl_seconds=0)
+        assert await tm.is_valid(token.token) is False
 
 
 # ══════════════════════════════════════════════════════════════
@@ -157,38 +162,38 @@ class TestChainTampering:
 class TestEnrollmentBypass:
     """ATF I-4/I-5: Agents must declare scope before operating."""
 
-    def test_zero_budget_blocked(self):
+    async def test_zero_budget_blocked(self):
         """Agent tries to enroll with no spending limits."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application(budget_tokens=0, budget_usd=0.0)
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert record.status == EnrollmentStatus.INCOMPLETE
         assert any("budget" in v.lower() for v in record.violations)
 
-    def test_empty_capabilities_blocked(self):
+    async def test_empty_capabilities_blocked(self):
         """Agent tries to enroll without declaring any tools."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application()
         app.capabilities.tools = []
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert record.status == EnrollmentStatus.INCOMPLETE
 
-    def test_no_owner_blocked(self):
+    async def test_no_owner_blocked(self):
         """Agent tries to enroll without an accountable human."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application(owner="")
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert record.status == EnrollmentStatus.INCOMPLETE
 
-    def test_suspended_agent_not_enrolled(self):
+    async def test_suspended_agent_not_enrolled(self):
         """Suspended agent's enrollment is invalid."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application()
-        registry.submit(app)
-        assert registry.is_enrolled("agent:test") is True
+        await registry.submit(app)
+        assert await registry.is_enrolled("agent:test") is True
 
-        registry.suspend("agent:test")
-        assert registry.is_enrolled("agent:test") is False
+        await registry.suspend("agent:test")
+        assert await registry.is_enrolled("agent:test") is False
 
 
 # ══════════════════════════════════════════════════════════════
@@ -205,6 +210,7 @@ class TestAdminEscalation:
             self._saved[key] = os.environ.get(key)
             if key in os.environ:
                 del os.environ[key]
+        _reset_admin_mode_snapshot_for_tests()
 
     def teardown_method(self):
         for key, val in self._saved.items():
@@ -212,31 +218,34 @@ class TestAdminEscalation:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = val
+        _reset_admin_mode_snapshot_for_tests()
 
-    def test_production_hard_block(self):
+    async def test_production_hard_block(self):
         """Even with admin mode enabled, production env blocks it."""
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "production"
+        _reset_admin_mode_snapshot_for_tests()
         machine_id = __import__("gavel.admin", fromlist=["get_machine_id"]).get_machine_id()
         os.environ["GAVEL_ADMIN_MACHINES"] = machine_id
 
         with pytest.raises(SecurityViolation) as exc_info:
-            AdminAgent(
+            await AdminAgent.create(
                 operator="attacker",
-                registry=EnrollmentRegistry(),
+                registry=_make_enrollment_registry(),
                 allowlist={machine_id},
             )
         assert exc_info.value.gate == "production_block"
 
-    def test_admin_cannot_disable_audit(self):
+    async def test_admin_cannot_disable_audit(self):
         """Constitutional guarantee: audit cannot be disabled, even by admin."""
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         machine_id = __import__("gavel.admin", fromlist=["get_machine_id"]).get_machine_id()
 
-        agent = AdminAgent(
+        agent = await AdminAgent.create(
             operator="dev@gavel.eu",
-            registry=EnrollmentRegistry(),
+            registry=_make_enrollment_registry(),
             allowlist={machine_id},
         )
 
@@ -266,11 +275,12 @@ class TestTrustManipulation:
     async def test_failure_decreases_trust(self, agent_registry):
         """A violation MUST decrease trust — agents cannot avoid consequences."""
         await agent_registry.register("agent:a", "A", "llm")
-        record = agent_registry.get("agent:a")
+        record = await agent_registry.get("agent:a")
         original_trust = record.trust_score
 
-        agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
-        assert record.trust_score < original_trust
+        await agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
+        refreshed = await agent_registry.get("agent:a")
+        assert refreshed.trust_score < original_trust
 
     @pytest.mark.asyncio
     async def test_violation_causes_demotion(self, agent_registry):
@@ -280,11 +290,12 @@ class TestTrustManipulation:
             autonomy_tier=AutonomyTier.SEMI_AUTONOMOUS,
             chains_completed=10, trust_score=400, violations=0,
         )
-        agent_registry._agents["agent:a"] = record
+        await agent_registry._repo.save(record)
 
         await agent_registry.record_chain_completion("agent:a", success=False)
         # violations=1 blocks re-promotion to SEMI_AUTONOMOUS (requires violations==0)
-        assert record.autonomy_tier == AutonomyTier.SUPERVISED
+        refreshed = await agent_registry.get("agent:a")
+        assert refreshed.autonomy_tier == AutonomyTier.SUPERVISED
 
     @pytest.mark.asyncio
     async def test_kill_switch_resets_tier(self, agent_registry):
@@ -294,8 +305,9 @@ class TestTrustManipulation:
             autonomy_tier=AutonomyTier.CRITICAL,
             chains_completed=200, trust_score=950,
         )
-        agent_registry._agents["agent:a"] = record
+        await agent_registry._repo.save(record)
 
         await agent_registry.kill("agent:a")
-        assert record.autonomy_tier == AutonomyTier.SUPERVISED
-        assert record.status == AgentStatus.SUSPENDED
+        refreshed = await agent_registry.get("agent:a")
+        assert refreshed.autonomy_tier == AutonomyTier.SUPERVISED
+        assert refreshed.status == AgentStatus.SUSPENDED

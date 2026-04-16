@@ -54,8 +54,9 @@ logger = logging.getLogger("gavel.adapters.claude_code")
 # ---------------------------------------------------------------------------
 
 GAVEL_API_BASE = os.environ.get("GAVEL_API_BASE", "http://localhost:8100")
-ENROLL_ENDPOINT = f"{GAVEL_API_BASE}/agents/enroll"
-REPORT_ENDPOINT_TEMPLATE = GAVEL_API_BASE + "/agents/{agent_id}/report"
+GAVEL_API_VERSION = "v1"
+ENROLL_ENDPOINT = f"{GAVEL_API_BASE}/{GAVEL_API_VERSION}/agents/enroll"
+REPORT_ENDPOINT_TEMPLATE = f"{GAVEL_API_BASE}/{GAVEL_API_VERSION}" + "/agents/{agent_id}/report"
 
 TOKEN_CACHE_DIR = Path(os.environ.get(
     "GAVEL_TOKEN_CACHE_DIR",
@@ -169,10 +170,11 @@ def _detect_admin_mode() -> bool:
 
     Admin mode is only honoured outside production environments.
     """
-    admin_flag = os.environ.get("GAVEL_ADMIN_MODE", "false").lower().strip()
+    from gavel.admin import is_admin_mode_enabled
+
     gavel_env = os.environ.get("GAVEL_ENV", "development").lower().strip()
 
-    if admin_flag != "true":
+    if not is_admin_mode_enabled():
         return False
     if gavel_env == "production":
         return False

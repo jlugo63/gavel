@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from gavel.export_bundles import (
+from gavel.compliance_export import (
     BundleBuilder,
     BundleTarget,
     build_eu_ai_act_bundle,

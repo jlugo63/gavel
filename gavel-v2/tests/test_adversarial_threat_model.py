@@ -24,6 +24,7 @@ from gavel.enrollment import (
     ResourceAllowlist,
 )
 from gavel.evidence import EvidenceReviewer
+from conftest import _make_enrollment_registry
 
 
 # ── T-T2: Evidence packet tamper-detection ─────────────────────
@@ -152,7 +153,7 @@ class TestEvidenceReviewPrivacyControls:
 class TestEnrollmentDefaultDeny:
     """Threat T-S1: unenrolled or invalid agents must be blocked."""
 
-    def test_missing_budget_blocks_enrollment(self):
+    async def test_missing_budget_blocks_enrollment(self):
         from gavel.enrollment import EnrollmentRegistry
 
         app = EnrollmentApplication(
@@ -171,8 +172,8 @@ class TestEnrollmentDefaultDeny:
             boundaries=ActionBoundaries(allowed_actions=["read"]),
             fallback=FallbackBehavior(),
         )
-        reg = EnrollmentRegistry()
-        record = reg.submit(app)
+        reg = _make_enrollment_registry()
+        record = await reg.submit(app)
         assert record.status.value == "INCOMPLETE"
         assert any("budget" in v.lower() for v in record.violations)
 

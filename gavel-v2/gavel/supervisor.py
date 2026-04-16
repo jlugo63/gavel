@@ -65,7 +65,7 @@ class Supervisor:
         now = datetime.now(timezone.utc)
 
         # Check agent heartbeats
-        for agent in self._registry.get_all():
+        for agent in await self._registry.get_all():
             if agent.status in (AgentStatus.SUSPENDED, AgentStatus.DEAD):
                 continue
 
@@ -73,7 +73,7 @@ class Supervisor:
             max_silence = agent.heartbeat_interval_s * self._miss_threshold
 
             if elapsed > max_silence and agent.status != AgentStatus.DEAD:
-                self._registry.mark_dead(agent.agent_id)
+                await self._registry.mark_dead(agent.agent_id)
                 await self._bus.publish(DashboardEvent(
                     event_type="agent_dead",
                     agent_id=agent.agent_id,

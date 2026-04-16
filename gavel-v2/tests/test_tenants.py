@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from gavel.tenants import (
+from gavel.tenancy import (
     Organization,
     OrgStatus,
     Team,
     TenantAgentQuota,
-    TenantContext,
+    OrgTenantContext as TenantContext,
     TenantIsolationEnforcer,
-    TenantRegistry,
+    OrgTenantRegistry as TenantRegistry,
 )
 
 

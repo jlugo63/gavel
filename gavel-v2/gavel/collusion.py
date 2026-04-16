@@ -33,7 +33,7 @@ observed role graph without any statistical models.
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -92,12 +92,33 @@ class CollusionDetector:
 
     def __init__(self, window: int = 1000):
         self._window = window
-        self._chains: list[ChainParticipation] = []
+        self._chains: deque[ChainParticipation] = deque(maxlen=window)
+        # Index for O(1) mutual approval lookups: (proposer, approver) -> [chain_id, ...]
+        self._approval_index: dict[tuple[str, str], list[str]] = defaultdict(list)
 
     def observe(self, participation: ChainParticipation) -> None:
+        # If the deque is full, the leftmost item will be evicted automatically.
+        # Remove evicted entry from the approval index.
+        if len(self._chains) == self._chains.maxlen:
+            evicted = self._chains[0]
+            if evicted.approver and evicted.proposer != evicted.approver:
+                key = (evicted.proposer, evicted.approver)
+                idx_list = self._approval_index.get(key)
+                if idx_list:
+                    try:
+                        idx_list.remove(evicted.chain_id)
+                    except ValueError:
+                        pass
+                    if not idx_list:
+                        self._approval_index.pop(key, None)
+
         self._chains.append(participation)
-        if len(self._chains) > self._window:
-            self._chains = self._chains[-self._window :]
+
+        # Update the approval index for the new entry
+        if participation.approver and participation.proposer != participation.approver:
+            self._approval_index[(participation.proposer, participation.approver)].append(
+                participation.chain_id
+            )
 
     # ---- detectors ----
 
@@ -111,11 +132,8 @@ class CollusionDetector:
 
     def _detect_mutual_approval(self) -> list[CollusionFinding]:
         """Pair (A, B) where A approves B ≥ k times AND B approves A ≥ k times."""
-        # proposer -> approver -> list of chain ids
-        approvals: dict[tuple[str, str], list[str]] = defaultdict(list)
-        for p in self._chains:
-            if p.approver and p.proposer != p.approver:
-                approvals[(p.proposer, p.approver)].append(p.chain_id)
+        # Use the pre-built approval index instead of scanning all chains
+        approvals = self._approval_index
 
         findings: list[CollusionFinding] = []
         seen: set[frozenset[str]] = set()
@@ -278,9 +296,11 @@ class CollusionDetector:
 
         # Look for any cycle of length 3 or 4 among (proposer, approver)
         # pairs whose total support dominates the recent history.
+        # Use list() since deque does not support slicing.
+        recent_chains = list(self._chains)[-50:]
         recent_pairs = [
             (p.proposer, p.approver)
-            for p in self._chains[-50:]
+            for p in recent_chains
             if p.approver and p.proposer != p.approver
         ]
         if len(recent_pairs) < _ROUND_ROBIN_MIN_CHAINS:
@@ -314,7 +334,7 @@ class CollusionDetector:
                             implicated=sorted(agents_in_head),
                             supporting_chains=[
                                 p.chain_id
-                                for p in self._chains[-50:]
+                                for p in recent_chains
                                 if p.proposer in agents_in_head
                                 and p.approver in agents_in_head
                             ],

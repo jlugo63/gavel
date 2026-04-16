@@ -204,3 +204,55 @@ class TestDriftDetection:
         r = _score_drift(e, c)
         assert 0.0 <= r.drift_score <= 1.0
         assert r.is_significant
+
+
+class TestBaselineCaching:
+    """Verify that _compute_baseline caching works correctly."""
+
+    def test_cache_returns_same_object_on_repeated_reads(self):
+        reg = BehavioralBaselineRegistry()
+        reg.observe(_obs("agent:a", risk_score=0.3))
+        b1 = reg.current_baseline("agent:a")
+        b2 = reg.current_baseline("agent:a")
+        # Cached — should be the exact same object
+        assert b1 is b2
+
+    def test_cache_invalidated_on_observe(self):
+        reg = BehavioralBaselineRegistry()
+        reg.observe(_obs("agent:a", risk_score=0.2))
+        b1 = reg.current_baseline("agent:a")
+        reg.observe(_obs("agent:a", risk_score=0.8))
+        b2 = reg.current_baseline("agent:a")
+        # After new observation, baseline should differ
+        assert b2.mean_risk != b1.mean_risk
+        assert b2.sample_size == 2
+
+    def test_cache_invalidated_on_reset_snapshot(self):
+        reg = BehavioralBaselineRegistry(min_samples_for_snapshot=2)
+        reg.observe(_obs("agent:a", risk_score=0.1))
+        reg.observe(_obs("agent:a", risk_score=0.1))
+        b1 = reg.current_baseline("agent:a")
+        reg.reset_snapshot("agent:a")
+        # Cache should be invalidated; next read recomputes
+        assert not reg._cache_valid.get("agent:a")
+        b2 = reg.current_baseline("agent:a")
+        # Values should still be the same (same data), but cache was rebuilt
+        assert b2.sample_size == b1.sample_size
+
+    def test_cache_per_agent_isolation(self):
+        reg = BehavioralBaselineRegistry()
+        reg.observe(_obs("agent:a", risk_score=0.1))
+        reg.observe(_obs("agent:b", risk_score=0.9))
+        ba = reg.current_baseline("agent:a")
+        bb = reg.current_baseline("agent:b")
+        assert ba.mean_risk == 0.1
+        assert bb.mean_risk == 0.9
+        # Observing agent:a should not invalidate agent:b's cache
+        bb_before = reg._cached_baselines.get("agent:b")
+        reg.observe(_obs("agent:a", risk_score=0.5))
+        assert reg._cache_valid.get("agent:b") is True
+        # agent:b's cached baseline should be the exact same object
+        assert reg._cached_baselines.get("agent:b") is bb_before
+        # agent:a was recomputed by observe(), so it has a new baseline
+        ba2 = reg.current_baseline("agent:a")
+        assert ba2.mean_risk == pytest.approx(0.3, abs=1e-4)

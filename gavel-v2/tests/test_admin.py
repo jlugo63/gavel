@@ -12,13 +12,16 @@ from gavel.admin import (
     AdminGateResult,
     AdminToken,
     SecurityViolation,
+    _reset_admin_mode_snapshot_for_tests,
     get_machine_id,
+    is_admin_mode_enabled,
     is_admin_safe,
     validate_admin_gates,
     validate_environment_for_production,
 )
 from gavel.chain import EventType, GovernanceChain
 from gavel.enrollment import EnrollmentRegistry, EnrollmentStatus
+from conftest import _make_enrollment_registry
 
 
 # ══════════════════════════════════════════════════════════════
@@ -73,6 +76,7 @@ class TestAdminGates:
             self._saved[key] = os.environ.get(key)
             if key in os.environ:
                 del os.environ[key]
+        _reset_admin_mode_snapshot_for_tests()
 
     def teardown_method(self):
         """Restore env vars."""
@@ -81,6 +85,7 @@ class TestAdminGates:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = val
+        _reset_admin_mode_snapshot_for_tests()
 
     def test_gate1_admin_mode_not_set(self):
         result = validate_admin_gates()
@@ -89,6 +94,7 @@ class TestAdminGates:
 
     def test_gate1_admin_mode_false(self):
         os.environ["GAVEL_ADMIN_MODE"] = "false"
+        _reset_admin_mode_snapshot_for_tests()
         result = validate_admin_gates()
         assert result.passed is False
         assert result.failure_gate == "env_flag"
@@ -96,6 +102,7 @@ class TestAdminGates:
     def test_gate2_production_blocked(self):
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "production"
+        _reset_admin_mode_snapshot_for_tests()
         result = validate_admin_gates()
         assert result.passed is False
         assert result.failure_gate == "production_block"
@@ -104,6 +111,7 @@ class TestAdminGates:
     def test_gate3_no_allowlist(self):
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         result = validate_admin_gates(allowlist=set())
         assert result.passed is False
         assert result.failure_gate == "machine_allowlist"
@@ -113,6 +121,7 @@ class TestAdminGates:
     def test_gate3_machine_not_in_allowlist(self):
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         result = validate_admin_gates(allowlist={"wrong_machine_id"})
         assert result.passed is False
         assert result.failure_gate == "machine_allowlist"
@@ -120,6 +129,7 @@ class TestAdminGates:
     def test_all_gates_pass(self):
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         machine_id = get_machine_id()
         result = validate_admin_gates(allowlist={machine_id})
         assert result.passed is True
@@ -131,6 +141,7 @@ class TestAdminGates:
         """GAVEL_ADMIN_MACHINES env var is read when allowlist param is None."""
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         machine_id = get_machine_id()
         os.environ["GAVEL_ADMIN_MACHINES"] = machine_id
         result = validate_admin_gates(allowlist=None)
@@ -149,6 +160,7 @@ class TestAdminAgent:
             self._saved[key] = os.environ.get(key)
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
 
     def teardown_method(self):
         for key, val in self._saved.items():
@@ -156,51 +168,54 @@ class TestAdminAgent:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = val
+        _reset_admin_mode_snapshot_for_tests()
 
-    def _make_agent(self, operator="dev@gavel.eu"):
-        registry = EnrollmentRegistry()
+    async def _make_agent(self, operator="dev@gavel.eu"):
+        registry = _make_enrollment_registry()
         machine_id = get_machine_id()
-        return AdminAgent(
+        return await AdminAgent.create(
             operator=operator,
             registry=registry,
             allowlist={machine_id},
         )
 
-    def test_construction_succeeds(self):
-        agent = self._make_agent()
+    async def test_construction_succeeds(self):
+        agent = await self._make_agent()
         assert agent.is_active is True
         assert agent.operator == "dev@gavel.eu"
         assert agent.token.token.startswith("gvl_admin_")
 
-    def test_construction_fails_without_admin_mode(self):
+    async def test_construction_fails_without_admin_mode(self):
         os.environ["GAVEL_ADMIN_MODE"] = "false"
+        _reset_admin_mode_snapshot_for_tests()
         with pytest.raises(SecurityViolation) as exc_info:
-            self._make_agent()
+            await self._make_agent()
         assert exc_info.value.gate == "env_flag"
 
-    def test_construction_fails_in_production(self):
+    async def test_construction_fails_in_production(self):
         os.environ["GAVEL_ENV"] = "production"
         with pytest.raises(SecurityViolation) as exc_info:
-            self._make_agent()
+            await self._make_agent()
         assert exc_info.value.gate == "production_block"
 
-    def test_construction_fails_wrong_machine(self):
+    async def test_construction_fails_wrong_machine(self):
         with pytest.raises(SecurityViolation) as exc_info:
-            registry = EnrollmentRegistry()
-            AdminAgent(
+            registry = _make_enrollment_registry()
+            await AdminAgent.create(
                 operator="dev@gavel.eu",
                 registry=registry,
                 allowlist={"wrong_machine_hash"},
             )
         assert exc_info.value.gate == "machine_allowlist"
 
-    def test_blocked_attempt_logged_to_chain(self):
+    async def test_blocked_attempt_logged_to_chain(self):
         """Even a failed activation attempt is logged."""
         os.environ["GAVEL_ADMIN_MODE"] = "false"
+        _reset_admin_mode_snapshot_for_tests()
         chain = GovernanceChain()
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         with pytest.raises(SecurityViolation):
-            AdminAgent(
+            await AdminAgent.create(
                 operator="attacker",
                 registry=registry,
                 allowlist=set(),
@@ -224,6 +239,7 @@ class TestAdminExecution:
             self._saved[key] = os.environ.get(key)
         os.environ["GAVEL_ADMIN_MODE"] = "true"
         os.environ["GAVEL_ENV"] = "development"
+        _reset_admin_mode_snapshot_for_tests()
         self.machine_id = get_machine_id()
 
     def teardown_method(self):
@@ -232,16 +248,17 @@ class TestAdminExecution:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = val
+        _reset_admin_mode_snapshot_for_tests()
 
-    def _make_agent(self):
-        return AdminAgent(
+    async def _make_agent(self):
+        return await AdminAgent.create(
             operator="dev@gavel.eu",
-            registry=EnrollmentRegistry(),
+            registry=_make_enrollment_registry(),
             allowlist={self.machine_id},
         )
 
-    def test_execute_returns_receipt(self):
-        agent = self._make_agent()
+    async def test_execute_returns_receipt(self):
+        agent = await self._make_agent()
         result = agent.execute("deploy_model", {"model": "v2.3"})
         assert result["status"] == "executed"
         assert result["action"] == "deploy_model"
@@ -249,15 +266,15 @@ class TestAdminExecution:
         assert result["audit_recorded"] is True
         assert "event_hash" in result
 
-    def test_execute_increments_counter(self):
-        agent = self._make_agent()
+    async def test_execute_increments_counter(self):
+        agent = await self._make_agent()
         assert agent.action_count == 0
         agent.execute("action_1")
         agent.execute("action_2")
         assert agent.action_count == 2
 
-    def test_execute_creates_chain_event(self):
-        agent = self._make_agent()
+    async def test_execute_creates_chain_event(self):
+        agent = await self._make_agent()
         agent.execute("test_action", {"key": "val"})
         # Chain should have: registration event + execution event
         events = agent.audit_chain.events
@@ -266,15 +283,15 @@ class TestAdminExecution:
         assert exec_event.payload["action"] == "test_action"
         assert exec_event.payload["audit_recorded"] is True
 
-    def test_audit_chain_integrity_after_execution(self):
-        agent = self._make_agent()
+    async def test_audit_chain_integrity_after_execution(self):
+        agent = await self._make_agent()
         for i in range(5):
             agent.execute(f"action_{i}")
         assert agent.audit_chain.verify_integrity() is True
 
-    def test_forbidden_operation_blocked(self):
+    async def test_forbidden_operation_blocked(self):
         """Admin cannot disable audit logging."""
-        agent = self._make_agent()
+        agent = await self._make_agent()
         with pytest.raises(AdminAuditViolation) as exc_info:
             agent.execute("disable_audit")
         assert exc_info.value.operation == "disable_audit"
@@ -289,34 +306,34 @@ class TestAdminExecution:
         "modify_audit_chain",
         "rewrite_audit_history",
     ])
-    def test_all_forbidden_operations(self, op):
-        agent = self._make_agent()
+    async def test_all_forbidden_operations(self, op):
+        agent = await self._make_agent()
         with pytest.raises(AdminAuditViolation):
             agent.execute(op)
 
-    def test_forbidden_op_still_logged(self):
+    async def test_forbidden_op_still_logged(self):
         """Even a blocked forbidden operation gets a chain event."""
-        agent = self._make_agent()
+        agent = await self._make_agent()
         events_before = len(agent.audit_chain.events)
         with pytest.raises(AdminAuditViolation):
             agent.execute("delete_audit_ledger")
         events_after = len(agent.audit_chain.events)
         assert events_after > events_before
 
-    def test_execute_after_end_session_raises(self):
-        agent = self._make_agent()
+    async def test_execute_after_end_session_raises(self):
+        agent = await self._make_agent()
         agent.end_session()
         assert agent.is_active is False
         with pytest.raises(RuntimeError, match="not active"):
             agent.execute("anything")
 
-    def test_end_session_revokes_token(self):
-        agent = self._make_agent()
+    async def test_end_session_revokes_token(self):
+        agent = await self._make_agent()
         agent.end_session()
         assert agent._token.revoked is True
 
-    def test_end_session_idempotent(self):
-        agent = self._make_agent()
+    async def test_end_session_idempotent(self):
+        agent = await self._make_agent()
         agent.end_session()
         agent.end_session()  # should not raise
 
@@ -333,6 +350,7 @@ class TestProductionSafety:
             self._saved[key] = os.environ.get(key)
             if key in os.environ:
                 del os.environ[key]
+        _reset_admin_mode_snapshot_for_tests()
 
     def teardown_method(self):
         for key, val in self._saved.items():
@@ -340,6 +358,7 @@ class TestProductionSafety:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = val
+        _reset_admin_mode_snapshot_for_tests()
 
     def test_is_admin_safe_default(self):
         """No env vars = safe."""
@@ -348,11 +367,13 @@ class TestProductionSafety:
     def test_is_admin_safe_production(self):
         os.environ["GAVEL_ENV"] = "production"
         os.environ["GAVEL_ADMIN_MODE"] = "true"  # even with this
+        _reset_admin_mode_snapshot_for_tests()
         assert is_admin_safe() is True  # production always blocks
 
     def test_is_admin_safe_dev_with_admin(self):
         os.environ["GAVEL_ENV"] = "development"
         os.environ["GAVEL_ADMIN_MODE"] = "true"
+        _reset_admin_mode_snapshot_for_tests()
         assert is_admin_safe() is False  # admin active in non-prod
 
     def test_validate_production_clean(self):
@@ -364,6 +385,7 @@ class TestProductionSafety:
     def test_validate_production_with_admin_mode(self):
         os.environ["GAVEL_ENV"] = "production"
         os.environ["GAVEL_ADMIN_MODE"] = "true"
+        _reset_admin_mode_snapshot_for_tests()
         is_safe, warnings = validate_environment_for_production()
         assert is_safe is False
         assert any("GAVEL_ADMIN_MODE" in w for w in warnings)

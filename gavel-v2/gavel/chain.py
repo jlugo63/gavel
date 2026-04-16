@@ -21,6 +21,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from gavel.request_id import get_request_id
+
 
 class EventType(str, Enum):
     INBOUND_INTENT = "INBOUND_INTENT"
@@ -51,6 +53,7 @@ class ChainEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     prev_hash: str = ""
     event_hash: str = ""
+    request_id: str | None = None
 
     def compute_hash(self) -> str:
         """SHA-256 hash of the event content + previous hash."""
@@ -120,6 +123,7 @@ class GovernanceChain:
             role_used=role_used,
             payload=payload or {},
             prev_hash=self.latest_hash,
+            request_id=get_request_id(),
         )
         event.event_hash = event.compute_hash()
         self._actor_roles.setdefault(actor_id, set()).add(role_used)

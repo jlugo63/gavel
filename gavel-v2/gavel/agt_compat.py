@@ -96,13 +96,27 @@ except ImportError:
             return True, "stub: no scan performed"
 
     class PromptInjectionDetector:  # type: ignore[no-redef]
-        """Stub PromptInjectionDetector — prompt injection scanning."""
+        """PromptInjectionDetector — delegates to gavel.prompt_injection.
+
+        When the real agent_os package is not installed, this stub delegates
+        to Gavel's own pattern-based detector for ATF D-2 compliance.
+        """
 
         def __init__(self, **kwargs: Any) -> None:
             self._kwargs = kwargs
+            from gavel.prompt_injection import PromptInjectionDetector as _RealDetector
+            self._delegate = _RealDetector(**kwargs)
 
         def detect(self, text: str) -> Tuple[bool, float]:
-            return False, 0.0
+            return self._delegate.detect(text)
+
+        def scan(self, text: str):
+            """Full scan with structured results."""
+            return self._delegate.scan(text)
+
+        def scan_fields(self, fields: dict):
+            """Scan multiple fields and merge results."""
+            return self._delegate.scan_fields(fields)
 
     class FlightRecorder:  # type: ignore[no-redef]
         """Stub FlightRecorder — audit logging."""
@@ -403,6 +417,130 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════
+# agent_compliance — EU AI Act risk classification (AGT v3.1.0)
+# ═══════════════════════════════════════════════════════════════
+
+try:
+    from agent_compliance import (  # type: ignore[import-untyped]
+        EUAIActRiskClassifier,
+        RiskLevel,
+        AgentRiskProfile,
+        ClassificationResult,
+        AnnexIVDocument,
+        TechnicalDocumentationExporter,
+    )
+    _AGENT_COMPLIANCE_AVAILABLE = True
+except ImportError:
+    _AGENT_COMPLIANCE_AVAILABLE = False
+
+    class RiskLevel(str, Enum):  # type: ignore[no-redef]
+        """EU AI Act risk levels per Article 6."""
+        UNACCEPTABLE = "unacceptable"
+        HIGH = "high"
+        LIMITED = "limited"
+        MINIMAL = "minimal"
+
+    class AgentRiskProfile:  # type: ignore[no-redef]
+        """Stub AgentRiskProfile — agent metadata for risk classification."""
+
+        def __init__(
+            self,
+            agent_id: str = "",
+            agent_type: str = "",
+            capabilities: Optional[List[str]] = None,
+            data_categories: Optional[List[str]] = None,
+            deployment_context: str = "",
+            intended_purpose: str = "",
+        ) -> None:
+            self.agent_id = agent_id
+            self.agent_type = agent_type
+            self.capabilities = capabilities or []
+            self.data_categories = data_categories or []
+            self.deployment_context = deployment_context
+            self.intended_purpose = intended_purpose
+
+    class ClassificationResult:  # type: ignore[no-redef]
+        """Stub ClassificationResult — output of EU AI Act risk classification."""
+
+        def __init__(
+            self,
+            risk_level: RiskLevel = RiskLevel.MINIMAL,
+            article_references: Optional[List[str]] = None,
+            reasoning: str = "",
+            classified_at: Optional[datetime] = None,
+        ) -> None:
+            self.risk_level = risk_level
+            self.article_references = article_references or []
+            self.reasoning = reasoning
+            self.classified_at = classified_at or datetime.now(timezone.utc)
+
+    class AnnexIVDocument:  # type: ignore[no-redef]
+        """Stub AnnexIVDocument — EU AI Act Annex IV technical documentation."""
+
+        def __init__(
+            self,
+            document_id: str = "",
+            agent_id: str = "",
+            sections: Optional[Dict[str, Any]] = None,
+            generated_at: Optional[datetime] = None,
+            version: str = "1.0",
+        ) -> None:
+            self.document_id = document_id or str(uuid.uuid4())
+            self.agent_id = agent_id
+            self.sections = sections or {}
+            self.generated_at = generated_at or datetime.now(timezone.utc)
+            self.version = version
+
+    class EUAIActRiskClassifier:  # type: ignore[no-redef]
+        """Stub EUAIActRiskClassifier — delegates to Gavel's compliance module
+        if available, otherwise returns a basic MINIMAL classification.
+        """
+
+        def __init__(self, **kwargs: Any) -> None:
+            self._kwargs = kwargs
+            self._delegate: Any = None
+            try:
+                from gavel.compliance import AnnexIVGenerator
+                self._delegate = AnnexIVGenerator()
+            except ImportError:
+                pass
+
+        def classify(self, agent_profile: AgentRiskProfile) -> ClassificationResult:
+            """Classify an agent's risk level under the EU AI Act."""
+            # Delegate to Gavel's own compliance module if available
+            if self._delegate is not None:
+                try:
+                    result = self._delegate.classify_risk(agent_profile.agent_id)
+                    if result:
+                        return ClassificationResult(
+                            risk_level=RiskLevel.HIGH,
+                            article_references=["Article 6"],
+                            reasoning=f"Classified via Gavel compliance module for {agent_profile.agent_id}",
+                        )
+                except Exception:
+                    pass
+            # Fallback: basic classification
+            return ClassificationResult(
+                risk_level=RiskLevel.MINIMAL,
+                article_references=[],
+                reasoning="Stub classification — no compliance module available",
+            )
+
+    class TechnicalDocumentationExporter:  # type: ignore[no-redef]
+        """Stub TechnicalDocumentationExporter — generates Annex IV documentation."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            self._kwargs = kwargs
+
+        def export(self, agent_id: str, context: Optional[Dict[str, Any]] = None) -> AnnexIVDocument:
+            """Export Annex IV technical documentation for an agent."""
+            return AnnexIVDocument(
+                agent_id=agent_id,
+                sections=context or {"summary": "Stub documentation"},
+            )
+
+
+# ═══════════════════════════════════════════════════════════════
 # Status / introspection
 # ═══════════════════════════════════════════════════════════════
 
@@ -433,7 +571,12 @@ def get_agt_status() -> Dict[str, Any]:
             "mode": "real" if _AGENT_KERNEL_AVAILABLE else "stub",
             "package": "agent-os-kernel",
         },
-        "all_real": _AGENT_OS_AVAILABLE and _AGENTMESH_AVAILABLE and _AGENT_KERNEL_AVAILABLE,
+        "agent_compliance": {
+            "available": _AGENT_COMPLIANCE_AVAILABLE,
+            "mode": "real" if _AGENT_COMPLIANCE_AVAILABLE else "stub",
+            "package": "agent-compliance",
+        },
+        "all_real": _AGENT_OS_AVAILABLE and _AGENTMESH_AVAILABLE and _AGENT_KERNEL_AVAILABLE and _AGENT_COMPLIANCE_AVAILABLE,
     }
     return status
 
@@ -474,10 +617,18 @@ __all__ = [
     # Additional agent_control_plane classes
     "ComplianceEngine",
     "GovernanceLayer",
+    # AGT v3.1.0 — EU AI Act risk classification
+    "EUAIActRiskClassifier",
+    "RiskLevel",
+    "AgentRiskProfile",
+    "ClassificationResult",
+    "AnnexIVDocument",
+    "TechnicalDocumentationExporter",
     # Introspection
     "get_agt_status",
     # Availability flags
     "_AGENT_OS_AVAILABLE",
     "_AGENTMESH_AVAILABLE",
     "_AGENT_KERNEL_AVAILABLE",
+    "_AGENT_COMPLIANCE_AVAILABLE",
 ]

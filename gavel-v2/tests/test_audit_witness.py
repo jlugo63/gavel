@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gavel.audit_witness import (
+from gavel.witness import (
     AuditWitness,
     VerificationStatus,
     WitnessCommitment,

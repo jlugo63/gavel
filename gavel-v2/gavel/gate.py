@@ -21,84 +21,36 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .agents import AgentRegistry, AgentStatus
-from .enrollment import TokenManager, GovernanceToken
+from .enrollment import GovernanceToken
 from .chain import GovernanceChain, ChainStatus, EventType
 from .events import EventBus, DashboardEvent
 from .hooks import classify_risk, should_govern
+from .prompt_injection import PromptInjectionDetector as _PIDetector, DetectionResult
+from .rate_limit import RateLimiter, BudgetTracker
 from .tiers import TierPolicy, AutonomyTier, TIER_TABLE
+from .dependencies import (
+    ChainLockManager,
+    get_agent_os,
+    get_agent_registry,
+    get_budget_tracker,
+    get_chain_lock_manager,
+    get_chain_repo,
+    get_event_bus,
+    get_liveness,
+    get_rate_limiter,
+    get_tier_policy,
+    require_gavel_token,
+)
+from gavel.db.repositories import ChainRepository
 
 log = logging.getLogger("gavel.gate")
 
-# ---------------------------------------------------------------------------
-# Shared state — set by gateway.py at startup via init_gate()
-# ---------------------------------------------------------------------------
-agent_registry: Optional[AgentRegistry] = None
-event_bus: Optional[EventBus] = None
-chains: Optional[dict[str, GovernanceChain]] = None
-liveness: Optional[Any] = None
-tier_policy: Optional[TierPolicy] = None
-policy_engine: Optional[Any] = None  # AGT PolicyEngine instance
-token_manager: Optional[TokenManager] = None
-chain_locks: Optional[Any] = None  # ChainLockManager from gateway.py
-
-
-def init_gate(
-    registry: AgentRegistry,
-    bus: EventBus,
-    chain_store: dict[str, GovernanceChain],
-    liveness_monitor: Any,
-    policy: TierPolicy | None = None,
-    cedar_engine: Any | None = None,
-    tokens: TokenManager | None = None,
-    lock_manager: Any | None = None,
-) -> None:
-    """Wire shared state from gateway.py into this module."""
-    global agent_registry, event_bus, chains, liveness, tier_policy, policy_engine, token_manager, chain_locks
-    agent_registry = registry
-    event_bus = bus
-    chains = chain_store
-    liveness = liveness_monitor
-    tier_policy = policy or TierPolicy()
-    policy_engine = cedar_engine
-    token_manager = tokens
-    chain_locks = lock_manager
-
-
-async def require_gavel_token(
-    x_gavel_token: Optional[str] = Header(default=None),
-) -> GovernanceToken:
-    """FastAPI dependency that validates the X-Gavel-Token header.
-
-    Raises 401 if the header is missing, 403 if the token is invalid/expired/revoked.
-    """
-    if x_gavel_token is None:
-        raise HTTPException(
-            status_code=401,
-            detail={"error": "missing_token", "detail": "X-Gavel-Token header is required"},
-        )
-
-    if token_manager is None:
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "not_initialized", "detail": "Token manager not available"},
-        )
-
-    valid, reason, gov_token = token_manager.validate(x_gavel_token)
-    if not valid:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": "token_invalid",
-                "detail": reason,
-                "agent_did": gov_token.agent_did if gov_token else None,
-            },
-        )
-
-    return gov_token
+# Module-level detector instance (no external dependencies)
+_injection_detector = _PIDetector()
 
 
 # ---------------------------------------------------------------------------
@@ -149,13 +101,13 @@ _TOOL_ACTION_TYPE: dict[str, str] = {
 }
 
 
-async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
-    """Run the AGT PolicyEngine against constitutional rules.
-
-    Returns a GateResponse (deny) if the policy rejects the request,
-    or None if the request passes all Cedar rules and should continue
-    to risk/tier evaluation.
-    """
+async def _evaluate_cedar(
+    req: GateRequest,
+    record,
+    policy_engine,
+    event_bus: EventBus,
+) -> GateResponse | None:
+    """Run the AGT PolicyEngine against constitutional rules."""
     try:
         from gavel.agt_compat import (
             ActionType,
@@ -164,11 +116,9 @@ async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
             PermissionLevel,
         )
 
-        # Map tool to AGT ActionType
         at_name = _TOOL_ACTION_TYPE.get(req.tool_name, "CODE_EXECUTION")
         action_type = ActionType(at_name)
 
-        # Build agent context with live status from registry
         ctx = AgentContext(
             agent_id=req.agent_id,
             session_id=req.session_id or "",
@@ -182,7 +132,6 @@ async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
             },
         )
 
-        # Build execution request
         exec_req = ExecutionRequest(
             request_id=f"gate-{req.agent_id}-{req.tool_name}-{uuid4().hex[:8]}",
             agent_context=ctx,
@@ -195,7 +144,6 @@ async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
             risk_score=classify_risk(req.tool_name, req.tool_input),
         )
 
-        # Evaluate against all loaded constitutional rules
         allowed, reason = policy_engine.validate_request(exec_req)
 
         if not allowed:
@@ -203,7 +151,6 @@ async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
                 "Cedar DENY: agent=%s tool=%s reason=%s",
                 req.agent_id, req.tool_name, reason,
             )
-            # Publish Cedar denial to dashboard
             if event_bus:
                 await event_bus.publish(DashboardEvent(
                     event_type="gate_check",
@@ -222,16 +169,30 @@ async def _evaluate_cedar(req: GateRequest, record) -> GateResponse | None:
                 reason=f"Cedar policy: {reason}",
             )
 
-        # Passed all Cedar rules — continue to risk/tier logic
         return None
 
     except Exception as e:
-        # Fail-closed: if Cedar evaluation crashes, deny the request
         log.error("Cedar evaluation error: %s", e, exc_info=True)
         return GateResponse(
             decision="deny",
             reason=f"Cedar evaluation error (fail-closed): {e}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Prompt injection scanning helper (ATF D-2)
+# ---------------------------------------------------------------------------
+
+def _scan_for_injection(req: GateRequest) -> DetectionResult:
+    """Extract scannable text fields from a gate request and run detection."""
+    fields: dict[str, str] = {}
+    for key, value in req.tool_input.items():
+        if isinstance(value, str):
+            fields[key] = value
+    fields["_tool_name"] = req.tool_name
+    if fields:
+        return _injection_detector.scan_fields(fields)
+    return DetectionResult(summary="No scannable fields")
 
 
 # ---------------------------------------------------------------------------
@@ -241,27 +202,54 @@ router = APIRouter(tags=["gate"])
 
 
 @router.post("/gate", response_model=GateResponse)
-async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_token)) -> GateResponse:
-    """Central enforcement gate for every tool invocation.
-
-    Requires a valid X-Gavel-Token header (issued at enrollment).
-
-    Fast path: low-risk actions are allowed immediately.
-    Slow path: high-risk actions create a governance chain and return
-    a poll URL so the caller can await approval.
-    """
+async def gate(
+    req: GateRequest,
+    token: GovernanceToken = Depends(require_gavel_token),
+    agent_registry: AgentRegistry = Depends(get_agent_registry),
+    event_bus: EventBus = Depends(get_event_bus),
+    chain_repo: ChainRepository = Depends(get_chain_repo),
+    chain_locks: ChainLockManager = Depends(get_chain_lock_manager),
+    liveness: Any = Depends(get_liveness),
+    tier_policy: TierPolicy = Depends(get_tier_policy),
+    policy_engine: Any = Depends(get_agent_os),
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    budget_tracker: BudgetTracker = Depends(get_budget_tracker),
+) -> GateResponse:
+    """Central enforcement gate for every tool invocation."""
     # 1. Agent lookup
-    record = agent_registry.get(req.agent_id)
+    record = await agent_registry.get(req.agent_id)
     if not record:
         return GateResponse(decision="deny", reason="Agent not registered")
 
     # 2. Cedar policy evaluation via AGT PolicyEngine
-    #    Enforces constitutional rules: kill-switch, registration,
-    #    dangerous commands — all as PolicyRule validators.
     if policy_engine:
-        cedar_decision = await _evaluate_cedar(req, record)
+        cedar_decision = await _evaluate_cedar(req, record, policy_engine, event_bus)
         if cedar_decision is not None:
             return cedar_decision
+
+    # 2b. Prompt injection detection (ATF D-2)
+    pi_result = _scan_for_injection(req)
+    if pi_result.is_injection:
+        log.warning(
+            "Prompt injection detected: agent=%s tool=%s confidence=%.2f vectors=%s",
+            req.agent_id, req.tool_name, pi_result.confidence,
+            [v.value for v in pi_result.vectors_found],
+        )
+        if event_bus:
+            await event_bus.publish(DashboardEvent(
+                event_type="prompt_injection",
+                agent_id=req.agent_id,
+                payload={
+                    "tool": req.tool_name,
+                    "session_id": req.session_id,
+                    **pi_result.to_gate_dict(),
+                },
+            ))
+        if pi_result.should_deny:
+            return GateResponse(
+                decision="deny",
+                reason=f"Prompt injection detected (confidence {pi_result.confidence:.2f}): {pi_result.summary}",
+            )
 
     # 3. Status checks — kill switch and dead agents (fallback if no Cedar)
     if record.status == AgentStatus.SUSPENDED:
@@ -272,14 +260,63 @@ async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_
     if record.status == AgentStatus.DEAD:
         return GateResponse(decision="deny", reason="Agent marked dead")
 
+    # 3b. ATF S-3: Rate limiting enforcement
+    rl_result = await rate_limiter.check_and_record(req.agent_id)
+    if not rl_result.allowed:
+        log.warning("S-3 rate limit deny: agent=%s", req.agent_id)
+        if event_bus:
+            await event_bus.publish(DashboardEvent(
+                event_type="gate_check",
+                agent_id=req.agent_id,
+                payload={
+                    "tool": req.tool_name,
+                    "decision": "deny",
+                    "reason": rl_result.reason,
+                    "rate_limit": True,
+                    "retry_after_seconds": rl_result.retry_after_seconds,
+                },
+            ))
+        return GateResponse(
+            decision="deny",
+            reason=f"ATF S-3: {rl_result.reason}",
+        )
+
+    # 3c. ATF S-4: Budget enforcement
+    token_cost = req.tool_input.get("token_cost", 0)
+    usd_cost = req.tool_input.get("usd_cost", 0.0)
+    budget_result = await budget_tracker.check_and_decrement(
+        req.agent_id,
+        token_cost=int(token_cost),
+        usd_cost=float(usd_cost),
+    )
+    if not budget_result.allowed:
+        log.warning("S-4 budget deny: agent=%s", req.agent_id)
+        if event_bus:
+            await event_bus.publish(DashboardEvent(
+                event_type="gate_check",
+                agent_id=req.agent_id,
+                payload={
+                    "tool": req.tool_name,
+                    "decision": "deny",
+                    "reason": budget_result.reason,
+                    "budget_exceeded": True,
+                },
+            ))
+        return GateResponse(
+            decision="deny",
+            reason=f"ATF S-4: {budget_result.reason}",
+        )
+
     # 4. Risk classification
     risk = classify_risk(req.tool_name, req.tool_input)
+    if pi_result.should_flag:
+        risk = min(risk + 0.3 + pi_result.confidence * 0.2, 1.0)
 
     # 5. Determine governance tier from agent record
     agent_tier = AutonomyTier(record.autonomy_tier)
     tier_reqs = TIER_TABLE[agent_tier]
 
-    # 6. Heartbeat — agent is alive if it is calling /gate
+    # 6. Heartbeat
     await agent_registry.heartbeat(
         req.agent_id,
         {"activity": f"gate: {req.tool_name}"},
@@ -288,7 +325,7 @@ async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_
     # 7. Decision — allow or govern
     governed = should_govern(risk)
 
-    # 8. Publish gate_check event to dashboard (with decision)
+    # 8. Publish gate_check event to dashboard
     await event_bus.publish(DashboardEvent(
         event_type="gate_check",
         agent_id=req.agent_id,
@@ -324,9 +361,8 @@ async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_
             },
         )
         chain.status = ChainStatus.ESCALATED
-        chains[chain.chain_id] = chain
+        await chain_repo.save(chain)
 
-    # Start SLA timer if liveness monitor is available
     sla_seconds = tier_reqs.sla_seconds
     if liveness:
         liveness.track(chain.chain_id, sla_seconds)
@@ -349,19 +385,22 @@ async def gate(req: GateRequest, token: GovernanceToken = Depends(require_gavel_
         tier=agent_tier.name,
         reason=f"Risk {risk:.2f} >= 0.5 — governance chain created",
         chain_id=chain.chain_id,
-        poll_url=f"/gate/poll/{chain.chain_id}",
+        poll_url=f"/v1/gate/poll/{chain.chain_id}",
         sla_seconds=sla_seconds,
     )
 
 
 @router.get("/gate/poll/{chain_id}", response_model=GatePollResponse)
-async def gate_poll(chain_id: str) -> GatePollResponse:
+async def gate_poll(
+    chain_id: str,
+    chain_repo: ChainRepository = Depends(get_chain_repo),
+    liveness: Any = Depends(get_liveness),
+) -> GatePollResponse:
     """Poll a governance chain for its current decision status."""
-    chain = chains.get(chain_id)
+    chain = await chain_repo.get(chain_id)
     if not chain:
         raise HTTPException(status_code=404, detail="Chain not found")
 
-    # Map chain status to a gate decision
     if chain.status in (ChainStatus.APPROVED, ChainStatus.COMPLETED):
         decision = "allow"
         reason = "Governance chain approved"
@@ -372,7 +411,6 @@ async def gate_poll(chain_id: str) -> GatePollResponse:
         decision = "pending"
         reason = f"Chain status: {chain.status.value}"
 
-    # SLA remaining
     sla_remaining = None
     if liveness:
         summary = liveness.status_summary()

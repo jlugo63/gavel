@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -13,6 +14,16 @@ sys.path.insert(
     os.path.join(os.path.dirname(__file__), ".."),
 )
 
+# Import models before anything else so Base.metadata is populated.
+from gavel.db import models as _models  # noqa: F401
+from gavel.db.base import Base
+import gavel.db.engine as db_engine
+from gavel.db.repositories import (
+    AgentRepository,
+    EnrollmentRepository,
+    GovernanceTokenRepository,
+    IncidentRepository,
+)
 from gavel.enrollment import (
     ActionBoundaries,
     CapabilityManifest,
@@ -27,6 +38,72 @@ from gavel.events import EventBus
 from gavel.agents import AgentRegistry
 from gavel.chain import GovernanceChain
 from gavel.tiers import TierPolicy
+
+
+@pytest.fixture(autouse=True)
+def _clean_db():
+    """Reset the process-wide engine + schema between every test.
+
+    The default test URL is ``sqlite+aiosqlite:///:memory:`` which is
+    per-engine, so resetting the engine gives us a brand-new DB.
+    """
+    from gavel.dependencies import reset_dependency_cache
+
+    # Tear down before the test.
+    db_engine.reset_engine()
+    reset_dependency_cache()
+
+    # Build fresh schema on the new engine.
+    async def _setup():
+        engine = db_engine.get_engine()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    asyncio.get_event_loop_policy().get_event_loop() if False else None
+    # Run the setup in a private loop — this fixture is sync but async DDL
+    # is needed. ``asyncio.run`` would conflict with a running loop; here
+    # we run in a fresh loop because pytest-asyncio creates its own per-test.
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_setup())
+    finally:
+        loop.close()
+
+    yield
+
+    # Teardown after the test — dispose engine so the next test starts clean.
+    db_engine.reset_engine()
+    reset_dependency_cache()
+
+
+def _sessionmaker():
+    """Return the current process-wide sessionmaker."""
+    return db_engine.get_sessionmaker()
+
+
+def _make_enrollment_registry() -> EnrollmentRegistry:
+    """Build a fresh EnrollmentRegistry bound to the process sessionmaker.
+
+    Tests that construct registries directly (not via the fixture) use
+    this helper so they don't have to know about repos. The sessionmaker
+    is reset per-test by the ``_clean_db`` autouse fixture.
+    """
+    return EnrollmentRegistry(EnrollmentRepository(_sessionmaker()))
+
+
+def _make_token_manager() -> TokenManager:
+    return TokenManager(GovernanceTokenRepository(_sessionmaker()))
+
+
+def _make_agent_registry(event_bus=None) -> AgentRegistry:
+    if event_bus is None:
+        event_bus = EventBus()
+    return AgentRegistry(event_bus, AgentRepository(_sessionmaker()))
+
+
+def _make_incident_registry():
+    from gavel.compliance import IncidentRegistry
+    return IncidentRegistry(IncidentRepository(_sessionmaker()))
 
 
 def _valid_application(agent_id: str = "agent:test", **overrides) -> EnrollmentApplication:
@@ -83,12 +160,12 @@ def valid_app():
 
 @pytest.fixture
 def enrollment_registry():
-    return EnrollmentRegistry()
+    return EnrollmentRegistry(EnrollmentRepository(_sessionmaker()))
 
 
 @pytest.fixture
 def token_manager():
-    return TokenManager()
+    return TokenManager(GovernanceTokenRepository(_sessionmaker()))
 
 
 @pytest.fixture
@@ -98,7 +175,13 @@ def event_bus():
 
 @pytest.fixture
 def agent_registry(event_bus):
-    return AgentRegistry(event_bus)
+    return AgentRegistry(event_bus, AgentRepository(_sessionmaker()))
+
+
+@pytest.fixture
+def incident_registry():
+    from gavel.compliance import IncidentRegistry
+    return IncidentRegistry(IncidentRepository(_sessionmaker()))
 
 
 @pytest.fixture
@@ -109,3 +192,37 @@ def governance_chain():
 @pytest.fixture
 def tier_policy():
     return TierPolicy()
+
+
+@pytest.fixture
+async def fakeredis_client():
+    """Function-scoped fakeredis async client (bytes mode).
+
+    Downstream Redis-impl tests use this directly, or get it injected via
+    ``mock_redis_url`` which patches ``gavel.redis_client._client``.
+    """
+    import fakeredis.aioredis
+
+    client = fakeredis.aioredis.FakeRedis(decode_responses=False)
+    try:
+        yield client
+    finally:
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+
+
+@pytest.fixture
+def mock_redis_url(monkeypatch, fakeredis_client):
+    """Patch ``gavel.redis_client`` so ``await get_redis()`` returns fakeredis.
+
+    Sets ``GAVEL_REDIS_URL`` (so ``is_redis_configured()`` is True) and
+    primes the cached client with the fakeredis instance. Cleared on teardown.
+    """
+    import gavel.redis_client as redis_client
+
+    monkeypatch.setenv(redis_client.REDIS_URL_VAR, "redis://fake")
+    monkeypatch.setattr(redis_client, "_client", fakeredis_client)
+    yield fakeredis_client
+    monkeypatch.setattr(redis_client, "_client", None)

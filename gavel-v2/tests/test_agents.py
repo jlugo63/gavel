@@ -34,19 +34,19 @@ class TestAgentRegistration:
     @pytest.mark.asyncio
     async def test_get_agent(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
-        record = agent_registry.get("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record is not None
         assert record.agent_id == "agent:a"
 
     @pytest.mark.asyncio
     async def test_get_unknown_returns_none(self, agent_registry):
-        assert agent_registry.get("agent:ghost") is None
+        assert await agent_registry.get("agent:ghost") is None
 
     @pytest.mark.asyncio
     async def test_get_all(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
         await agent_registry.register("agent:b", "B", "tool")
-        all_agents = agent_registry.get_all()
+        all_agents = await agent_registry.get_all()
         assert len(all_agents) == 2
 
 
@@ -107,8 +107,8 @@ class TestKillSwitch:
     @pytest.mark.asyncio
     async def test_mark_dead(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
-        agent_registry.mark_dead("agent:a")
-        record = agent_registry.get("agent:a")
+        await agent_registry.mark_dead("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record.status == AgentStatus.DEAD
 
     @pytest.mark.asyncio
@@ -116,83 +116,83 @@ class TestKillSwitch:
         """Suspended agents should not be overwritten to DEAD."""
         await agent_registry.register("agent:a", "A", "llm")
         await agent_registry.kill("agent:a")
-        agent_registry.mark_dead("agent:a")
-        record = agent_registry.get("agent:a")
+        await agent_registry.mark_dead("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record.status == AgentStatus.SUSPENDED  # not DEAD
 
 
 class TestPromotionTrack:
-    def test_promote_check_intern_to_junior(self, agent_registry):
+    async def test_promote_check_intern_to_junior(self, agent_registry):
         """10 chains + trust >= 400 + 0 violations = Junior."""
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=10, trust_score=400, violations=0,
             autonomy_tier=AutonomyTier.SUPERVISED,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         assert new_tier == AutonomyTier.SEMI_AUTONOMOUS
 
-    def test_promote_check_junior_to_senior(self, agent_registry):
+    async def test_promote_check_junior_to_senior(self, agent_registry):
         """50 chains + trust >= 700 = Senior."""
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=50, trust_score=700, violations=0,
             autonomy_tier=AutonomyTier.SEMI_AUTONOMOUS,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         assert new_tier == AutonomyTier.AUTONOMOUS
 
-    def test_promote_check_senior_to_principal(self, agent_registry):
+    async def test_promote_check_senior_to_principal(self, agent_registry):
         """200 chains + trust >= 900 + 0 violations = Principal."""
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=200, trust_score=900, violations=0,
             autonomy_tier=AutonomyTier.AUTONOMOUS,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         assert new_tier == AutonomyTier.CRITICAL
 
-    def test_violations_block_junior_promotion(self, agent_registry):
+    async def test_violations_block_junior_promotion(self, agent_registry):
         """Violations prevent Junior promotion even with enough chains/trust."""
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=15, trust_score=500, violations=1,
             autonomy_tier=AutonomyTier.SUPERVISED,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         assert new_tier == AutonomyTier.SUPERVISED  # stays at intern
 
-    def test_violations_block_principal_promotion(self, agent_registry):
+    async def test_violations_block_principal_promotion(self, agent_registry):
         """Any violation blocks Principal tier."""
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=200, trust_score=950, violations=1,
             autonomy_tier=AutonomyTier.AUTONOMOUS,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         # Should get Senior (50+ chains, 700+ trust) but not Principal
         assert new_tier == AutonomyTier.AUTONOMOUS
 
-    def test_insufficient_trust_no_promotion(self, agent_registry):
+    async def test_insufficient_trust_no_promotion(self, agent_registry):
         record = AgentRecord(
             agent_id="agent:a", display_name="A", agent_type="llm",
             chains_completed=100, trust_score=300, violations=0,
             autonomy_tier=AutonomyTier.SUPERVISED,
         )
-        agent_registry._agents["agent:a"] = record
-        new_tier = agent_registry.promote_check("agent:a")
+        await agent_registry._repo.save(record)
+        new_tier = await agent_registry.promote_check("agent:a")
         assert new_tier == AutonomyTier.SUPERVISED
 
     @pytest.mark.asyncio
     async def test_chain_completion_success_increments(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
         await agent_registry.record_chain_completion("agent:a", success=True)
-        record = agent_registry.get("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record.chains_completed == 1
 
     @pytest.mark.asyncio
@@ -202,10 +202,10 @@ class TestPromotionTrack:
             autonomy_tier=AutonomyTier.AUTONOMOUS,
             chains_completed=50, trust_score=700,
         )
-        agent_registry._agents["agent:a"] = record
+        await agent_registry._repo.save(record)
 
         await agent_registry.record_chain_completion("agent:a", success=False)
-        record = agent_registry.get("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record.violations == 1
 
     @pytest.mark.asyncio
@@ -216,10 +216,10 @@ class TestPromotionTrack:
             autonomy_tier=AutonomyTier.SEMI_AUTONOMOUS,
             chains_completed=10, trust_score=400, violations=0,
         )
-        agent_registry._agents["agent:a"] = record
+        await agent_registry._repo.save(record)
 
         await agent_registry.record_chain_completion("agent:a", success=False)
-        record = agent_registry.get("agent:a")
+        record = await agent_registry.get("agent:a")
         assert record.violations == 1
         # Violations > 0 blocks re-promotion to SEMI_AUTONOMOUS
         assert record.autonomy_tier == AutonomyTier.SUPERVISED
@@ -229,13 +229,13 @@ class TestTrustUpdate:
     @pytest.mark.asyncio
     async def test_success_increases_trust(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
-        result = agent_registry.update_trust_from_outcome("agent:a", "Read", success=True)
+        result = await agent_registry.update_trust_from_outcome("agent:a", "Read", success=True)
         assert result["trust_score"] == 501
 
     @pytest.mark.asyncio
     async def test_failure_decreases_trust(self, agent_registry):
         await agent_registry.register("agent:a", "A", "llm")
-        result = agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
+        result = await agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
         assert result["trust_score"] == 475  # 500 - 25
 
     @pytest.mark.asyncio
@@ -244,8 +244,8 @@ class TestTrustUpdate:
             agent_id="agent:a", display_name="A", agent_type="llm",
             trust_score=1000,
         )
-        agent_registry._agents["agent:a"] = record
-        result = agent_registry.update_trust_from_outcome("agent:a", "Read", success=True)
+        await agent_registry._repo.save(record)
+        result = await agent_registry.update_trust_from_outcome("agent:a", "Read", success=True)
         assert result["trust_score"] == 1000
 
     @pytest.mark.asyncio
@@ -254,10 +254,10 @@ class TestTrustUpdate:
             agent_id="agent:a", display_name="A", agent_type="llm",
             trust_score=10,
         )
-        agent_registry._agents["agent:a"] = record
-        result = agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
+        await agent_registry._repo.save(record)
+        result = await agent_registry.update_trust_from_outcome("agent:a", "Bash", success=False)
         assert result["trust_score"] == 0
 
-    def test_update_unknown_agent(self, agent_registry):
-        result = agent_registry.update_trust_from_outcome("agent:ghost", "Read", True)
+    async def test_update_unknown_agent(self, agent_registry):
+        result = await agent_registry.update_trust_from_outcome("agent:ghost", "Read", True)
         assert result is None

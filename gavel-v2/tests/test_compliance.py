@@ -25,7 +25,7 @@ from gavel.compliance import (
     IncidentClassifier,
     IncidentRegistry,
 )
-from conftest import _valid_application
+from conftest import _valid_application, _make_enrollment_registry, _make_incident_registry
 
 
 # ══════════════════════════════════════════════════════════════
@@ -147,12 +147,12 @@ class TestProhibitedPracticeDetection:
         violations = detect_prohibited_practices(app)
         assert len(violations) == 0
 
-    def test_prohibited_enrollment_rejected(self):
+    async def test_prohibited_enrollment_rejected(self):
         """Enrollment registry rejects prohibited practices."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application()
         app.purpose.summary = "Social scoring and social credit evaluation"
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert record.status.value in ("INCOMPLETE", "REJECTED")
         assert any("art. 5" in v.lower() or "prohibited" in v.lower() for v in record.violations)
 
@@ -165,25 +165,25 @@ class TestProhibitedPracticeDetection:
 class TestHighRiskEnrollmentValidation:
     """High-risk agents must meet enhanced enrollment requirements."""
 
-    def test_high_risk_needs_high_risk_tier(self):
+    async def test_high_risk_needs_high_risk_tier(self):
         """High-risk category agent with standard risk_tier gets violation."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application()
         app.high_risk_category = HighRiskCategory.EMPLOYMENT
         app.purpose.summary = "CV screening and recruitment"
         # risk_tier defaults to "standard" — should trigger violation
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert any("high" in v.lower() or "risk" in v.lower() for v in record.violations)
 
-    def test_high_risk_needs_contact(self):
+    async def test_high_risk_needs_contact(self):
         """High-risk agents must provide deployer contact info."""
-        registry = EnrollmentRegistry()
+        registry = _make_enrollment_registry()
         app = _valid_application()
         app.high_risk_category = HighRiskCategory.ESSENTIAL_SERVICES
         app.purpose.summary = "Credit scoring evaluation"
         app.purpose.risk_tier = "high"
         app.owner_contact = ""  # Missing contact
-        record = registry.submit(app)
+        record = await registry.submit(app)
         assert any("contact" in v.lower() for v in record.violations)
 
 
@@ -298,9 +298,9 @@ class TestIncidentDeadlines:
 class TestIncidentRegistry:
     """Incident lifecycle management."""
 
-    def test_create_incident(self):
-        registry = IncidentRegistry()
-        incident = registry.report(
+    async def test_create_incident(self):
+        registry = _make_incident_registry()
+        incident = await registry.report(
             agent_id="agent:test",
             title="Test incident",
             description="Something happened",
@@ -310,51 +310,61 @@ class TestIncidentRegistry:
         assert incident.status == IncidentStatus.OPEN
         assert incident.deadline is not None
 
-    def test_get_incident(self):
-        registry = IncidentRegistry()
-        incident = registry.report("agent:a", "Test", "Desc", IncidentSeverity.MINOR)
-        retrieved = registry.get(incident.incident_id)
+    async def test_get_incident(self):
+        registry = _make_incident_registry()
+        incident = await registry.report("agent:a", "Test", "Desc", IncidentSeverity.MINOR)
+        retrieved = await registry.get(incident.incident_id)
         assert retrieved is not None
         assert retrieved.agent_id == "agent:a"
 
-    def test_get_by_agent(self):
-        registry = IncidentRegistry()
-        registry.report("agent:a", "Inc 1", "Desc", IncidentSeverity.MINOR)
-        registry.report("agent:b", "Inc 2", "Desc", IncidentSeverity.MINOR)
-        registry.report("agent:a", "Inc 3", "Desc", IncidentSeverity.STANDARD)
-        assert len(registry.get_by_agent("agent:a")) == 2
+    async def test_get_by_agent(self):
+        registry = _make_incident_registry()
+        await registry.report("agent:a", "Inc 1", "Desc", IncidentSeverity.MINOR)
+        await registry.report("agent:b", "Inc 2", "Desc", IncidentSeverity.MINOR)
+        await registry.report("agent:a", "Inc 3", "Desc", IncidentSeverity.STANDARD)
+        assert len(await registry.get_by_agent("agent:a")) == 2
 
-    def test_get_by_severity(self):
-        registry = IncidentRegistry()
-        registry.report("agent:a", "Critical", "Desc", IncidentSeverity.CRITICAL)
-        registry.report("agent:a", "Minor", "Desc", IncidentSeverity.MINOR)
-        assert len(registry.get_by_severity(IncidentSeverity.CRITICAL)) == 1
+    async def test_get_by_severity(self):
+        registry = _make_incident_registry()
+        await registry.report("agent:a", "Critical", "Desc", IncidentSeverity.CRITICAL)
+        await registry.report("agent:a", "Minor", "Desc", IncidentSeverity.MINOR)
+        assert len(await registry.get_by_severity(IncidentSeverity.CRITICAL)) == 1
 
-    def test_mark_reported(self):
-        registry = IncidentRegistry()
-        incident = registry.report("agent:a", "Test", "Desc", IncidentSeverity.SERIOUS)
-        updated = registry.mark_reported(incident.incident_id)
+    async def test_mark_reported(self):
+        registry = _make_incident_registry()
+        incident = await registry.report("agent:a", "Test", "Desc", IncidentSeverity.SERIOUS)
+        updated = await registry.mark_reported(incident.incident_id)
         assert updated.status == IncidentStatus.REPORTED
         assert updated.reported_at is not None
 
-    def test_mark_resolved(self):
-        registry = IncidentRegistry()
-        incident = registry.report("agent:a", "Test", "Desc", IncidentSeverity.STANDARD)
-        updated = registry.mark_resolved(incident.incident_id)
+    async def test_mark_resolved(self):
+        registry = _make_incident_registry()
+        incident = await registry.report("agent:a", "Test", "Desc", IncidentSeverity.STANDARD)
+        updated = await registry.mark_resolved(incident.incident_id)
         assert updated.status == IncidentStatus.RESOLVED
         assert updated.resolved_at is not None
 
-    def test_overdue_detection(self):
-        registry = IncidentRegistry()
-        incident = registry.report("agent:a", "Old", "Desc", IncidentSeverity.CRITICAL)
-        # Manually backdate the deadline to make it overdue
-        incident.deadline = datetime.now(timezone.utc) - timedelta(days=1)
-        overdue = registry.get_overdue()
+    async def test_overdue_detection(self):
+        registry = _make_incident_registry()
+        incident = await registry.report("agent:a", "Old", "Desc", IncidentSeverity.CRITICAL)
+        # Manually backdate the deadline in the DB to make it overdue.
+        from sqlalchemy import update
+        from gavel.db.models import IncidentRow
+        repo = registry._repo
+        sm = repo._sessionmaker
+        async with sm() as session:
+            async with session.begin():
+                await session.execute(
+                    update(IncidentRow)
+                    .where(IncidentRow.incident_id == incident.incident_id)
+                    .values(deadline=datetime.now(timezone.utc) - timedelta(days=1))
+                )
+        overdue = await registry.get_overdue()
         assert len(overdue) == 1
 
-    def test_auto_classify_from_event(self):
-        registry = IncidentRegistry()
-        incident = registry.report(
+    async def test_auto_classify_from_event(self):
+        registry = _make_incident_registry()
+        incident = await registry.report(
             agent_id="agent:a",
             title="Kill switch triggered",
             description="Agent suspended",

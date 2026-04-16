@@ -60,6 +60,42 @@ log = logging.getLogger("gavel.admin")
 
 
 # ---------------------------------------------------------------------------
+# Immutable admin-mode snapshot
+# ---------------------------------------------------------------------------
+#
+# GAVEL_ADMIN_MODE is snapshotted ONCE at module import. Later mutations of
+# os.environ are ignored, so an attacker who gains process-env write access
+# post-startup cannot flip this flag on. See ARCHITECTURE_REVIEW_2026-04-14 §5.6.
+
+def _read_admin_mode_env() -> bool:
+    return os.environ.get("GAVEL_ADMIN_MODE", "false").lower().strip() == "true"
+
+
+_ADMIN_MODE_SNAPSHOT: bool = _read_admin_mode_env()
+
+
+def is_admin_mode_enabled() -> bool:
+    """Return the import-time GAVEL_ADMIN_MODE snapshot.
+
+    This is the sole supported way to check the admin-mode flag at runtime.
+    The value is frozen at module import and cannot be flipped on by mutating
+    os.environ later in the process lifetime.
+    """
+    return _ADMIN_MODE_SNAPSHOT
+
+
+def _reset_admin_mode_snapshot_for_tests() -> None:
+    """Re-read GAVEL_ADMIN_MODE from the environment (TEST-ONLY).
+
+    Tests need to vary the snapshot to exercise different admin-mode states
+    without re-importing the module. Production code MUST NOT call this —
+    the snapshot is meant to be immutable post-startup.
+    """
+    global _ADMIN_MODE_SNAPSHOT
+    _ADMIN_MODE_SNAPSHOT = _read_admin_mode_env()
+
+
+# ---------------------------------------------------------------------------
 # Extended ledger event types for admin operations
 # ---------------------------------------------------------------------------
 
@@ -206,16 +242,17 @@ def validate_admin_gates(
     """
     machine_id = get_machine_id()
     gavel_env = os.environ.get("GAVEL_ENV", "development")
-    admin_flag = os.environ.get("GAVEL_ADMIN_MODE", "false").lower().strip()
+    admin_enabled = is_admin_mode_enabled()
 
     result = AdminGateResult(machine_id=machine_id, gavel_env=gavel_env)
 
-    # Gate 1: GAVEL_ADMIN_MODE=true
-    if admin_flag != "true":
+    # Gate 1: GAVEL_ADMIN_MODE=true (snapshot taken at module import)
+    if not admin_enabled:
         result.passed = False
         result.failure_gate = "env_flag"
         result.failure_reason = (
-            f"GAVEL_ADMIN_MODE is '{admin_flag}', must be 'true' to activate admin mode"
+            "GAVEL_ADMIN_MODE snapshot is false, must be 'true' at import time "
+            "to activate admin mode"
         )
         return result
     result.env_flag_ok = True
@@ -351,12 +388,51 @@ class AdminAgent:
         "rewrite_audit_history",
     })
 
+    @classmethod
+    async def create(
+        cls,
+        operator: str,
+        registry: EnrollmentRegistry,
+        allowlist: set[str] | None = None,
+        audit_chain: GovernanceChain | None = None,
+    ) -> "AdminAgent":
+        """Async factory — runs gates, registers the agent, returns an active instance.
+
+        ``__init__`` is kept sync-only for gate validation; the registry
+        writes that need to be awaited are performed here so the rest of
+        the class API remains synchronous.
+        """
+        self = cls(
+            operator=operator,
+            registry=registry,
+            allowlist=allowlist,
+            audit_chain=audit_chain,
+            _defer_registration=True,
+        )
+        application = _build_admin_enrollment(operator, self._machine_id)
+        record = await self._registry.submit(application)
+        if record.status != EnrollmentStatus.ENROLLED:
+            await self._registry.approve_manual(
+                agent_id=application.agent_id,
+                reviewed_by=f"admin_agent:{operator}",
+            )
+        self._record_registration_event()
+        self._active = True
+        log.info(
+            "Admin agent registered: operator=%s machine=%s token=%s...",
+            operator,
+            self._machine_id[:16],
+            self._token.token[:20],
+        )
+        return self
+
     def __init__(
         self,
         operator: str,
         registry: EnrollmentRegistry,
         allowlist: set[str] | None = None,
         audit_chain: GovernanceChain | None = None,
+        _defer_registration: bool = False,
     ) -> None:
         self._operator = operator
         self._registry = registry
@@ -403,46 +479,35 @@ class AdminAgent:
                 attempted_env=gate_result.gavel_env,
             )
 
-        # All gates passed — register with EnrollmentRegistry
+        # All gates passed — set up the token; registry writes happen in create().
         self._machine_id = gate_result.machine_id
+        self._gavel_env = gate_result.gavel_env
         self._token = AdminToken.generate(
             operator=operator,
             machine_id=self._machine_id,
         )
 
-        # Register via the existing EnrollmentApplication model
-        application = _build_admin_enrollment(operator, self._machine_id)
-        record = self._registry.submit(application)
-
-        if record.status != EnrollmentStatus.ENROLLED:
-            # Force-approve: admin agents bypass enrollment validation
-            self._registry.approve_manual(
-                agent_id=application.agent_id,
-                reviewed_by=f"admin_agent:{operator}",
+        if not _defer_registration:
+            raise RuntimeError(
+                "AdminAgent must be constructed via `await AdminAgent.create(...)` "
+                "so registry writes can be awaited."
             )
 
-        # Record registration in the audit chain
+    def _record_registration_event(self) -> None:
+        """Append the ADMIN_REGISTERED event to the audit chain."""
         self._audit_chain.append(
             event_type=EventType.APPROVAL_GRANTED,
-            actor_id=f"admin:{operator}",
+            actor_id=f"admin:{self._operator}",
             role_used="admin_agent",
             payload={
                 "admin_event": AdminLedgerEvent.ADMIN_REGISTERED.value,
                 "token_prefix": self._token.token[:16] + "...",
                 "machine_id": self._machine_id,
-                "gavel_env": gate_result.gavel_env,
+                "gavel_env": self._gavel_env,
                 "capabilities": self._token.capabilities,
                 "scope": self._token.scope,
                 "expires_at": self._token.expires_at,
             },
-        )
-
-        self._active = True
-        log.info(
-            "Admin agent registered: operator=%s machine=%s token=%s...",
-            operator,
-            self._machine_id[:16],
-            self._token.token[:20],
         )
 
     # -- Properties ----------------------------------------------------------
@@ -617,15 +682,14 @@ def is_admin_safe() -> bool:
     Returns:
         True if admin mode is provably disabled and safe for production.
     """
-    admin_flag = os.environ.get("GAVEL_ADMIN_MODE", "false").lower().strip()
     gavel_env = os.environ.get("GAVEL_ENV", "").lower().strip()
 
     # If env is production, admin mode is always blocked regardless of flag
     if gavel_env == "production":
         return True
 
-    # If admin flag is not set or is false, admin mode is disabled
-    if admin_flag != "true":
+    # If admin snapshot is false, admin mode is disabled
+    if not is_admin_mode_enabled():
         return True
 
     # Admin mode is active in a non-production environment — not safe
@@ -643,7 +707,6 @@ def validate_environment_for_production() -> tuple[bool, list[str]]:
     """
     warnings: list[str] = []
     gavel_env = os.environ.get("GAVEL_ENV", "").lower().strip()
-    admin_flag = os.environ.get("GAVEL_ADMIN_MODE", "false").lower().strip()
     admin_machines = os.environ.get("GAVEL_ADMIN_MACHINES", "")
 
     if gavel_env != "production":
@@ -651,7 +714,7 @@ def validate_environment_for_production() -> tuple[bool, list[str]]:
             f"GAVEL_ENV is '{gavel_env}', expected 'production' for production deployment"
         )
 
-    if admin_flag == "true":
+    if is_admin_mode_enabled():
         warnings.append(
             "GAVEL_ADMIN_MODE is 'true' — admin mode is enabled. "
             "This MUST be disabled for production."

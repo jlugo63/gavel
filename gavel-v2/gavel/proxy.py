@@ -58,6 +58,8 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from gavel.request_id import RequestIDMiddleware
+
 # ---------------------------------------------------------------------------
 # Logging -- mirrors other gavel modules (single getLogger, no handler setup
 # so the root/app-level config controls output).
@@ -460,6 +462,8 @@ def create_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RequestIDMiddleware)
+
     # -- health -------------------------------------------------------------
 
     @app.get("/healthz")
@@ -686,6 +690,8 @@ def create_docker_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
         description="Enforcement proxy for Docker Engine API -- blocks unregistered AI agents.",
         lifespan=lifespan,
     )
+
+    app.add_middleware(RequestIDMiddleware)
 
     @app.get("/healthz")
     async def health() -> dict:

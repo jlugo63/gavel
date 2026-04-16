@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from gavel.enrollment import HighRiskCategory
+
+if TYPE_CHECKING:
+    from gavel.db.repositories import IncidentRepository
 
 
 class ComplianceStatus(str, Enum):
@@ -132,12 +135,16 @@ class IncidentClassifier:
 
 
 class IncidentRegistry:
-    """Track and manage incidents per EU AI Act Article 73."""
+    """Track and manage incidents per EU AI Act Article 73.
 
-    def __init__(self):
-        self._incidents: dict[str, IncidentReport] = {}
+    Storage is backed by :class:`gavel.db.repositories.IncidentRepository`.
+    Classification logic stays in :class:`IncidentClassifier`.
+    """
 
-    def report(
+    def __init__(self, repo: "IncidentRepository"):
+        self._repo = repo
+
+    async def report(
         self,
         agent_id: str,
         title: str,
@@ -165,37 +172,33 @@ class IncidentRegistry:
             findings=[],
             regulatory_references=_get_regulatory_refs(severity),
         )
-        self._incidents[incident.incident_id] = incident
+        await self._repo.save(incident)
         return incident
 
-    def get(self, incident_id: str) -> IncidentReport | None:
-        return self._incidents.get(incident_id)
+    async def get(self, incident_id: str) -> IncidentReport | None:
+        return await self._repo.get(incident_id)
 
-    def get_all(self) -> list[IncidentReport]:
-        return list(self._incidents.values())
+    async def get_all(self) -> list[IncidentReport]:
+        return await self._repo.list_all()
 
-    def get_by_agent(self, agent_id: str) -> list[IncidentReport]:
-        return [i for i in self._incidents.values() if i.agent_id == agent_id]
+    async def get_by_agent(self, agent_id: str) -> list[IncidentReport]:
+        return await self._repo.list_by_agent(agent_id)
 
-    def get_overdue(self) -> list[IncidentReport]:
-        return [i for i in self._incidents.values() if i.is_overdue]
+    async def get_overdue(self) -> list[IncidentReport]:
+        return await self._repo.list_overdue(datetime.now(timezone.utc))
 
-    def get_by_severity(self, severity: IncidentSeverity) -> list[IncidentReport]:
-        return [i for i in self._incidents.values() if i.severity == severity]
+    async def get_by_severity(self, severity: IncidentSeverity) -> list[IncidentReport]:
+        all_incidents = await self._repo.list_all()
+        return [i for i in all_incidents if i.severity == severity]
 
-    def mark_reported(self, incident_id: str) -> IncidentReport | None:
-        incident = self._incidents.get(incident_id)
-        if incident:
-            incident.reported_at = datetime.now(timezone.utc)
-            incident.status = IncidentStatus.REPORTED
-        return incident
+    async def mark_reported(self, incident_id: str) -> IncidentReport | None:
+        # Atomic update; repo returns True on state change.
+        await self._repo.mark_reported(incident_id)
+        return await self._repo.get(incident_id)
 
-    def mark_resolved(self, incident_id: str) -> IncidentReport | None:
-        incident = self._incidents.get(incident_id)
-        if incident:
-            incident.resolved_at = datetime.now(timezone.utc)
-            incident.status = IncidentStatus.RESOLVED
-        return incident
+    async def mark_resolved(self, incident_id: str) -> IncidentReport | None:
+        await self._repo.mark_resolved(incident_id)
+        return await self._repo.get(incident_id)
 
 
 def _get_regulatory_refs(severity: IncidentSeverity) -> list[str]:

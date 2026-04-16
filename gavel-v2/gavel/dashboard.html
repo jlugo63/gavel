@@ -598,7 +598,7 @@ const STATUS_COLORS = {
 let eventSource = null;
 
 function connect() {
-  eventSource = new EventSource('/events/stream');
+  eventSource = new EventSource('/v1/events/stream');
   const connEl = document.getElementById('conn-indicator');
   const connText = document.getElementById('conn-text');
 
@@ -978,7 +978,7 @@ async function killAll() {
 }
 
 async function approveChain(chainId) {
-  await fetch('/approve', {
+  await fetch('/v1/approve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -997,7 +997,7 @@ async function approveChain(chainId) {
 async function denyChain(chainId) {
   const reason = prompt('Denial reason:', 'Denied via dashboard');
   if (reason === null) return;
-  await fetch('/approve', {
+  await fetch('/v1/approve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1029,14 +1029,14 @@ function esc(s) {
 async function loadInitialState() {
   try {
     const [agentsRes, statusRes] = await Promise.all([
-      fetch('/agents').then(r => r.json()),
-      fetch('/status').then(r => r.json()),
+      fetch('/v1/agents').then(r => r.json()),
+      fetch('/v1/status').then(r => r.json()),
     ]);
 
     agentsRes.forEach(a => { state.agents[a.agent_id] = a; });
     // Load enrollment status
     try {
-      const enrollRes = await fetch('/agents/enrollments').then(r => r.json());
+      const enrollRes = await fetch('/v1/agents/enrollments').then(r => r.json());
       enrollRes.forEach(e => { enrollments[e.agent_id] = e; });
     } catch (e) {}
     render();
@@ -1048,7 +1048,7 @@ async function loadInitialState() {
 // Poll liveness every 4s for SLA data
 setInterval(async () => {
   try {
-    const data = await fetch('/liveness').then(r => r.json());
+    const data = await fetch('/v1/liveness').then(r => r.json());
     renderSLA(data);
   } catch (e) {}
 }, 4000);
@@ -1056,7 +1056,7 @@ setInterval(async () => {
 // Refresh full agent state every 15s (catches status changes not in SSE)
 setInterval(async () => {
   try {
-    const agents = await fetch('/agents').then(r => r.json());
+    const agents = await fetch('/v1/agents').then(r => r.json());
     agents.forEach(a => { state.agents[a.agent_id] = a; });
     renderAgents();
     renderKillPanel();
@@ -1140,7 +1140,7 @@ async function submitEnrollment() {
   };
 
   try {
-    const resp = await fetch('/agents/enroll', {
+    const resp = await fetch('/v1/agents/enroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1153,7 +1153,7 @@ async function submitEnrollment() {
       enrollments[agentId] = data;
       setTimeout(closeEnrollModal, 1500);
       // Refresh agents
-      const agents = await fetch('/agents').then(r => r.json());
+      const agents = await fetch('/v1/agents').then(r => r.json());
       agents.forEach(a => { state.agents[a.agent_id] = a; });
       render();
     } else {
@@ -1187,8 +1187,8 @@ function switchTab(tabName) {
 async function loadAgentsTab() {
   try {
     const [agentsRes, enrollRes] = await Promise.all([
-      fetch('/agents').then(r => r.json()),
-      fetch('/agents/enrollments').then(r => r.json()),
+      fetch('/v1/agents').then(r => r.json()),
+      fetch('/v1/agents/enrollments').then(r => r.json()),
     ]);
     const enrollMap = {};
     enrollRes.forEach(e => { enrollMap[e.agent_id] = e; });
@@ -1273,7 +1273,7 @@ async function toggleTimelineChainDetail(chainId) {
 async function loadIncidentsTab() {
   const container = document.getElementById('incidents-container');
   try {
-    const incidents = await fetch('/api/v1/incidents').then(r => r.json());
+    const incidents = await fetch('/v1/incidents').then(r => r.json());
     if (!incidents || incidents.length === 0) {
       container.innerHTML = '<p style="color:var(--text3);font-style:italic">No incidents recorded.</p>';
       return;
@@ -1326,7 +1326,7 @@ async function createIncident() {
   const severity = document.getElementById('inc-severity').value || undefined;
   if (!agentId || !title) { alert('Agent ID and Title are required'); return; }
   try {
-    await fetch('/api/v1/incidents', {
+    await fetch('/v1/incidents', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agent_id: agentId, title, description: desc, severity }),
@@ -1343,12 +1343,12 @@ async function createIncident() {
 }
 
 async function markIncidentReported(id) {
-  await fetch(`/api/v1/incidents/${id}/report`, { method: 'PATCH' });
+  await fetch(`/v1/incidents/${id}/report`, { method: 'PATCH' });
   loadIncidentsTab();
 }
 
 async function markIncidentResolved(id) {
-  await fetch(`/api/v1/incidents/${id}/resolve`, { method: 'PATCH' });
+  await fetch(`/v1/incidents/${id}/resolve`, { method: 'PATCH' });
   loadIncidentsTab();
 }
 
@@ -1359,7 +1359,7 @@ async function loadComplianceTab() {
   const container = document.getElementById('compliance-container');
   const agentsList = document.getElementById('compliance-agents-list');
   try {
-    const status = await fetch('/api/v1/compliance/status').then(r => r.json());
+    const status = await fetch('/v1/compliance/status').then(r => r.json());
 
     let sevBars = '';
     for (const [sev, count] of Object.entries(status.incidents_by_severity || {})) {
@@ -1412,7 +1412,7 @@ async function generateAnnexIV(agentId) {
   body.innerHTML = '<p style="color:var(--text3)">Loading documentation...</p>';
   modal.classList.add('active');
   try {
-    const data = await fetch(`/api/v1/agents/${agentId}/compliance/annex-iv`).then(r => r.json());
+    const data = await fetch(`/v1/agents/${agentId}/compliance/annex-iv`).then(r => r.json());
     const sections = data.sections || data;
     if (Array.isArray(sections)) {
       body.innerHTML = sections.map(s => `<div class="annex-section">
@@ -1442,7 +1442,7 @@ function closeAnnexModal() {
 async function loadConstitutionTab() {
   const container = document.getElementById('constitution-container');
   try {
-    const data = await fetch('/constitution').then(r => r.json());
+    const data = await fetch('/v1/constitution').then(r => r.json());
     const invariants = data.invariants || data;
     const items = Array.isArray(invariants) ? invariants : Object.values(invariants);
 
@@ -1484,7 +1484,7 @@ async function loadConstitutionTab() {
 // =================================================================
 async function updateIncidentCounter() {
   try {
-    const incidents = await fetch('/api/v1/incidents').then(r => r.json());
+    const incidents = await fetch('/v1/incidents').then(r => r.json());
     const el = document.getElementById('incident-counter');
     const total = incidents.length;
     const overdue = incidents.filter(i => i.is_overdue).length;
@@ -1501,7 +1501,7 @@ async function updateIncidentCounter() {
 // Check enrollment status for all agents periodically
 async function checkEnrollments() {
   try {
-    const data = await fetch('/agents/enrollments').then(r => r.json());
+    const data = await fetch('/v1/agents/enrollments').then(r => r.json());
     data.forEach(e => { enrollments[e.agent_id] = e; });
     renderAgents();
   } catch (e) {}

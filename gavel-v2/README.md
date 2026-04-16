@@ -44,7 +44,7 @@ git clone https://github.com/jlugo63/constitutional-control-plane.git
 cd constitutional-control-plane/gavel-v2
 cp .env.example .env
 docker compose up
-# Open http://localhost:8100/dashboard
+# Open http://localhost:8100/v1/dashboard
 ```
 
 ## Quick Start
@@ -59,7 +59,7 @@ uvicorn gavel.gateway:app --port 8000
 import httpx
 
 # 1. Agent proposes a production fix
-resp = httpx.post("http://localhost:8000/propose", json={
+resp = httpx.post("http://localhost:8000/v1/propose", json={
     "actor_id": "agent:code-analyzer",
     "goal": "Fix race condition in payments endpoint",
     "action_type": "CODE_DEPLOY",
@@ -75,7 +75,7 @@ chain_id = resp.json()["chain_id"]
 # -> Blast box evidence + deterministic review already ran
 
 # 2. Same agent tries to self-approve -> BLOCKED
-resp = httpx.post("http://localhost:8000/approve", json={
+resp = httpx.post("http://localhost:8000/v1/approve", json={
     "chain_id": chain_id,
     "actor_id": "agent:code-analyzer",  # same as proposer
     "decision": "APPROVED",
@@ -84,7 +84,7 @@ resp = httpx.post("http://localhost:8000/approve", json={
 # -> 403: Separation violation: agent:code-analyzer has role 'proposer', cannot also be 'approver'
 
 # 3. Independent reviewer attests
-httpx.post("http://localhost:8000/attest", json={
+httpx.post("http://localhost:8000/v1/attest", json={
     "chain_id": chain_id,
     "actor_id": "agent:code-reviewer",
     "decision": "ATTEST",
@@ -92,7 +92,7 @@ httpx.post("http://localhost:8000/attest", json={
 })
 
 # 4. Third agent approves -> execution token minted
-resp = httpx.post("http://localhost:8000/approve", json={
+resp = httpx.post("http://localhost:8000/v1/approve", json={
     "chain_id": chain_id,
     "actor_id": "agent:deploy-authority",
     "decision": "APPROVED",
@@ -101,7 +101,7 @@ resp = httpx.post("http://localhost:8000/approve", json={
 # -> execution_token: "exec-t-...", scoped, single-use, expires 10min
 
 # 5. Full audit trail
-chain = httpx.get(f"http://localhost:8000/chain/{chain_id}").json()
+chain = httpx.get(f"http://localhost:8000/v1/chain/{chain_id}").json()
 # -> integrity: true, 8 hash-chained events, 3 distinct principals
 ```
 
@@ -132,6 +132,22 @@ Gavel uses the real Agent Governance Toolkit at runtime:
 pip install -e ".[dev]"
 pytest -v --cov=gavel
 ```
+
+### Running integration tests
+
+The integration suite exercises the full FastAPI → repository → asyncpg →
+Postgres stack. It is filtered out of the default `pytest` run (via
+`addopts = "-m 'not integration'"` in `pyproject.toml`) and gated on the
+`GAVEL_INTEGRATION_DB_URL` env var — without it the suite is cleanly skipped.
+
+```bash
+docker compose up -d postgres
+GAVEL_INTEGRATION_DB_URL=postgresql+asyncpg://gavel:gavel@localhost:5432/gavel pytest -m integration
+```
+
+The session-scoped fixture in `tests/integration/conftest.py` runs
+`alembic upgrade head` against the target URL at session start and
+`alembic downgrade base` at the end, so no separate alembic step is needed.
 
 158 tests across three layers:
 - **Unit** (92 tests) — each module in isolation

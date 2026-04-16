@@ -83,6 +83,8 @@ class DriftReport(BaseModel):
     escalation_delta: float = 0.0
     new_tools: list[str] = Field(default_factory=list)        # tools never seen at enrollment
     tool_distribution_shift: float = 0.0  # L1 distance between tool freq vectors (0..2)
+    path_novelty: float = 0.0             # fraction of current top paths not seen at enrollment (0..1)
+    new_paths: list[str] = Field(default_factory=list)        # paths not in enrollment top_paths
     drift_score: float = 0.0              # Aggregate 0..1 score
     is_significant: bool = False
     reasons: list[str] = Field(default_factory=list)
@@ -109,6 +111,8 @@ class BehavioralBaselineRegistry:
         self._min_snapshot = min_samples_for_snapshot
         self._observations: dict[str, deque[BehavioralObservation]] = {}
         self._enrollment_snapshots: dict[str, BehavioralBaseline] = {}
+        self._cached_baselines: dict[str, BehavioralBaseline] = {}
+        self._cache_valid: dict[str, bool] = {}
 
     # ---- writes ----
 
@@ -116,6 +120,7 @@ class BehavioralBaselineRegistry:
         """Record one observation and return the current baseline."""
         buf = self._observations.setdefault(obs.agent_id, deque(maxlen=self._window))
         buf.append(obs)
+        self._cache_valid[obs.agent_id] = False
 
         baseline = self._compute_baseline(obs.agent_id)
 
@@ -149,10 +154,14 @@ class BehavioralBaselineRegistry:
     def reset_snapshot(self, agent_id: str) -> None:
         """Drop the enrollment snapshot so the next observation re-freezes it."""
         self._enrollment_snapshots.pop(agent_id, None)
+        self._cache_valid[agent_id] = False
 
     # ---- internal ----
 
     def _compute_baseline(self, agent_id: str) -> BehavioralBaseline:
+        if self._cache_valid.get(agent_id):
+            return self._cached_baselines[agent_id]
+
         buf = self._observations.get(agent_id)
         if not buf:
             return BehavioralBaseline(agent_id=agent_id)
@@ -181,7 +190,7 @@ class BehavioralBaselineRegistry:
             elif o.outcome == "ESCALATED":
                 escalated += 1
 
-        return BehavioralBaseline(
+        baseline = BehavioralBaseline(
             agent_id=agent_id,
             sample_size=n,
             tool_frequencies={k: round(v / n, 4) for k, v in tool_counts.items()},
@@ -194,6 +203,9 @@ class BehavioralBaselineRegistry:
             escalation_rate=round(escalated / n, 4),
             top_paths=[p for p, _ in path_counts.most_common(5)],
         )
+        self._cached_baselines[agent_id] = baseline
+        self._cache_valid[agent_id] = True
+        return baseline
 
 
 # ── Drift scoring ──────────────────────────────────────────────
@@ -201,14 +213,15 @@ class BehavioralBaselineRegistry:
 def _score_drift(enrollment: BehavioralBaseline, current: BehavioralBaseline) -> DriftReport:
     """Deterministic drift scoring.
 
-    The aggregate drift_score is a weighted sum of four signals,
+    The aggregate drift_score is a weighted sum of six signals,
     clipped to [0, 1]:
 
-      - 0.35 * |risk_delta|   (risk inflation)
-      - 0.25 * |network_delta|
-      - 0.20 * tool_distribution_shift / 2
-      - 0.10 * |denial_delta|
-      - 0.10 * |escalation_delta|
+      - 0.35 * |risk_delta|          (risk inflation)
+      - 0.25 * |network_delta|       (network activation)
+      - 0.20 * tool_distribution_shift / 2  (tool profile change)
+      - 0.10 * path_novelty          (scope expansion — added for V7)
+      - 0.10 * |denial_delta|        (outcome skew)
+      - 0.10 * |escalation_delta|    (escalation skew)
 
     A drift_score above _DRIFT_THRESHOLD is flagged as significant.
     """
@@ -230,11 +243,23 @@ def _score_drift(enrollment: BehavioralBaseline, current: BehavioralBaseline) ->
 
     new_tools = sorted(set(current.tool_frequencies) - set(enrollment.tool_frequencies))
 
-    # Weighted aggregate
+    # Path novelty: fraction of current top paths not present at enrollment.
+    # Captures scope expansion — agent touching paths it didn't at enrollment.
+    enrollment_paths = set(enrollment.top_paths)
+    current_paths = set(current.top_paths)
+    new_paths = sorted(current_paths - enrollment_paths) if enrollment_paths else []
+    if current_paths:
+        path_novelty = round(len(current_paths - enrollment_paths) / len(current_paths), 4)
+    else:
+        path_novelty = 0.0
+
+    # Weighted aggregate (original 5 terms kept at original weights,
+    # path_novelty additive — max theoretical is 1.1, clipped to 1.0)
     score = (
         0.35 * abs(risk_delta)
         + 0.25 * abs(network_delta)
         + 0.20 * (tool_shift / 2.0)
+        + 0.10 * path_novelty
         + 0.10 * abs(denial_delta)
         + 0.10 * abs(escalation_delta)
     )
@@ -248,6 +273,8 @@ def _score_drift(enrollment: BehavioralBaseline, current: BehavioralBaseline) ->
         reasons.append(f"tool_distribution_shift={tool_shift:.3f}")
     if new_tools:
         reasons.append(f"new_tools={new_tools}")
+    if path_novelty > 0.30:
+        reasons.append(f"path_novelty={path_novelty:.3f} new_paths={new_paths}")
     if abs(denial_delta) > 0.10:
         reasons.append(f"denial_delta={denial_delta:+.3f}")
     if abs(escalation_delta) > 0.10:
@@ -263,6 +290,8 @@ def _score_drift(enrollment: BehavioralBaseline, current: BehavioralBaseline) ->
         escalation_delta=escalation_delta,
         new_tools=new_tools,
         tool_distribution_shift=tool_shift,
+        path_novelty=path_novelty,
+        new_paths=new_paths,
         drift_score=score,
         is_significant=score >= _DRIFT_THRESHOLD,
         reasons=reasons,
