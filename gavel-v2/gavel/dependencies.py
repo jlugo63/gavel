@@ -162,10 +162,9 @@ def get_chain_lock_manager() -> ChainLockManager:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Cached async sessionmaker bound to the process-wide engine."""
-    return db_engine.get_sessionmaker()
+# Re-export the canonical sessionmaker provider from db.engine so that
+# ``Depends(get_sessionmaker)`` in routers resolves through a single cache.
+get_sessionmaker = db_engine.get_sessionmaker
 
 
 def get_chain_repo(
@@ -357,15 +356,14 @@ def reset_dependency_cache() -> None:
 async def reset_db() -> None:
     """Drop & recreate the DB schema on the current engine.
 
-    Test-only helper. Clears both Gavel's engine cache and the local
-    sessionmaker cache so the next ``get_sessionmaker()`` picks up a
+    Test-only helper. Clears the engine + sessionmaker cache in
+    ``gavel.db.engine`` so the next ``get_sessionmaker()`` picks up a
     fresh engine, then recreates every table registered on
     :class:`Base.metadata`.
     """
     # Tear down cached engine + sessionmaker so subsequent providers
     # build a new one against the current GAVEL_DB_URL.
     db_engine.reset_engine()
-    get_sessionmaker.cache_clear()
 
     engine = db_engine.get_engine()
     async with engine.begin() as conn:
