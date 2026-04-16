@@ -11,6 +11,7 @@ from gavel.rate_limit import (
     BudgetCheckResult,
     BudgetStatus,
     BudgetTracker,
+    InProcessRateLimiter,
     RateLimitResult,
     RateLimiter,
 )
@@ -25,7 +26,7 @@ class TestRateLimiter:
     """Sliding window rate limiter tests."""
 
     async def test_allows_actions_within_limit(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=5)
 
         for i in range(5):
@@ -35,7 +36,7 @@ class TestRateLimiter:
             assert result.limit == 5
 
     async def test_denies_action_exceeding_limit(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=3)
 
         now = 1000.0
@@ -50,7 +51,7 @@ class TestRateLimiter:
         assert "exceeded" in result.reason.lower()
 
     async def test_retry_after_is_positive(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=2)
 
         now = 1000.0
@@ -65,7 +66,7 @@ class TestRateLimiter:
         assert result.retry_after_seconds <= 60.0
 
     async def test_window_slides_allows_after_expiry(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=2)
 
         now = 1000.0
@@ -82,12 +83,12 @@ class TestRateLimiter:
         assert result.current_count == 1
 
     async def test_unconfigured_agent_is_allowed(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         result = await rl.check_and_record("agent:unknown")
         assert result.allowed is True
 
     async def test_separate_agents_have_separate_limits(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=1)
         await rl.configure("agent:b", max_actions_per_minute=1)
 
@@ -103,7 +104,7 @@ class TestRateLimiter:
         assert (await rl.check_and_record("agent:b", now=now + 0.1)).allowed is False
 
     async def test_get_usage(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=10)
 
         now = 1000.0
@@ -116,7 +117,7 @@ class TestRateLimiter:
         assert usage["remaining"] == 8
 
     async def test_reset_clears_window(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=2)
 
         now = 1000.0
@@ -136,7 +137,7 @@ class TestRateLimiter:
 
     async def test_denied_action_is_not_recorded(self):
         """Denied actions should not consume a window slot."""
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:a", max_actions_per_minute=2)
 
         now = 1000.0
@@ -152,7 +153,7 @@ class TestRateLimiter:
 
     async def test_high_rate_limit(self):
         """Agent with a high limit should handle many actions."""
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:fast", max_actions_per_minute=1000)
 
         now = 1000.0
@@ -167,7 +168,7 @@ class TestRateLimiter:
     async def test_concurrent_check_serializes_under_lock(self):
         """Fire many concurrent check_and_record calls and assert the window
         state is internally consistent — no double counts, no torn reads."""
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent:c", max_actions_per_minute=40)
 
         now = 1000.0

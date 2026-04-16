@@ -13,7 +13,7 @@ from gavel.chain import ChainStatus, GovernanceChain
 from gavel.collusion import ChainParticipation, CollusionDetector
 from gavel.enrollment import TokenManager
 from gavel.events import DashboardEvent, EventBus
-from gavel.rate_limit import RateLimiter
+from gavel.rate_limit import InProcessRateLimiter, RateLimiter
 
 
 # ── Fix 1: Gateway chain garbage collection ─────────────────────
@@ -204,14 +204,14 @@ class TestEventBusLock:
 
 class TestRateLimiterCleanup:
     async def test_last_seen_tracked(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("agent-1", 10)
         now = 1000.0
         await rl.check_and_record("agent-1", now=now)
         assert rl._last_seen["agent-1"] == now
 
     async def test_cleanup_removes_stale_agents(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("old-agent", 10)
         await rl.configure("new-agent", 10)
 
@@ -230,7 +230,7 @@ class TestRateLimiterCleanup:
         assert "new-agent" in rl._windows
 
     async def test_cleanup_no_stale(self):
-        rl = RateLimiter()
+        rl = InProcessRateLimiter()
         await rl.configure("active", 10)
         now = 1000.0
         await rl.check_and_record("active", now=now)

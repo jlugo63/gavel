@@ -12,8 +12,6 @@ off a shared async sessionmaker.
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
 from functools import lru_cache
 from typing import Optional
 
@@ -23,6 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gavel.agents import AgentRegistry
 from gavel.agt_compat import AgentMeshClient, AgentOSEngine
 from gavel.blastbox import BlastBox
+from gavel.chain_lock import (
+    ChainLockManager,
+    create_chain_lock_manager,
+)
 from gavel.compliance import IncidentRegistry
 from gavel.constitution import Constitution
 import gavel.db.engine as db_engine
@@ -38,42 +40,13 @@ from gavel.db.repositories import (
     ReviewRepository,
 )
 from gavel.enrollment import EnrollmentRegistry, GovernanceToken, TokenManager
-from gavel.events import EventBus
+from gavel.events import EventBus, InProcessEventBus, RedisEventBus, create_event_bus
 from gavel.evidence import EvidenceReviewer
 from gavel.liveness import LivenessMonitor
-from gavel.rate_limit import BudgetTracker, RateLimiter
+from gavel.rate_limit import BudgetTracker, RateLimiter, create_rate_limiter
+from gavel.redis_client import is_redis_configured
 from gavel.separation import SeparationOfPowers
 from gavel.tiers import TierPolicy
-
-
-# ---------------------------------------------------------------------------
-# Per-chain concurrency control
-# ---------------------------------------------------------------------------
-
-
-class ChainLockManager:
-    """Manages per-chain asyncio locks to prevent concurrent chain mutations.
-
-    Two concurrent requests on the same chain_id can interleave appends and
-    corrupt the hash chain. This manager provides a lazy-created asyncio.Lock
-    per chain_id, so callers serialize mutations with:
-
-        async with chain_locks.lock(chain_id):
-            chain.append(...)
-    """
-
-    def __init__(self):
-        self._locks: dict[str, asyncio.Lock] = {}
-
-    @asynccontextmanager
-    async def lock(self, chain_id: str):
-        if chain_id not in self._locks:
-            self._locks[chain_id] = asyncio.Lock()
-        async with self._locks[chain_id]:
-            yield
-
-    def discard(self, chain_id: str) -> None:
-        self._locks.pop(chain_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -111,9 +84,32 @@ def get_evidence_reviewer() -> EvidenceReviewer:
     return EvidenceReviewer()
 
 
-@lru_cache(maxsize=1)
-def get_event_bus() -> EventBus:
-    return EventBus()
+_event_bus_instance: InProcessEventBus | RedisEventBus | None = None
+
+
+def get_event_bus() -> InProcessEventBus | RedisEventBus:
+    """Return the process-wide event bus singleton.
+
+    The first call creates an :class:`InProcessEventBus`.  To upgrade
+    to the Redis-backed implementation, call :func:`init_event_bus`
+    during application startup (after the event loop is running).
+    """
+    global _event_bus_instance
+    if _event_bus_instance is None:
+        _event_bus_instance = InProcessEventBus()
+    return _event_bus_instance
+
+
+async def init_event_bus() -> InProcessEventBus | RedisEventBus:
+    """Initialize the event bus singleton using the factory.
+
+    Call once during application lifespan startup so that the Redis
+    implementation is used when ``GAVEL_REDIS_URL`` is configured.
+    Returns the created bus instance.
+    """
+    global _event_bus_instance
+    _event_bus_instance = await create_event_bus()
+    return _event_bus_instance
 
 
 @lru_cache(maxsize=1)
@@ -121,9 +117,32 @@ def get_agent_os() -> AgentOSEngine:
     return AgentOSEngine()
 
 
-@lru_cache(maxsize=1)
+_rate_limiter_instance: Optional[RateLimiter] = None
+
+
 def get_rate_limiter() -> RateLimiter:
-    return RateLimiter()
+    """Return the process-wide RateLimiter.
+
+    When ``GAVEL_REDIS_URL`` is set the first call creates a
+    :class:`~gavel.rate_limit.RedisRateLimiter`; otherwise an
+    :class:`~gavel.rate_limit.InProcessRateLimiter` is returned.
+    The instance is cached for the lifetime of the process.
+    """
+    global _rate_limiter_instance
+    if _rate_limiter_instance is not None:
+        return _rate_limiter_instance
+
+    redis_client = None
+    if is_redis_configured():
+        import gavel.redis_client as _rc
+        # Attempt to grab the already-primed client synchronously.
+        # During app startup the lifespan will have called ``await get_redis()``
+        # which primes ``_rc._client``.  If it's still None we fall back to
+        # in-process so the factory never blocks on I/O.
+        redis_client = _rc._client
+
+    _rate_limiter_instance = create_rate_limiter(redis_client)
+    return _rate_limiter_instance
 
 
 @lru_cache(maxsize=1)
@@ -133,7 +152,9 @@ def get_budget_tracker() -> BudgetTracker:
 
 @lru_cache(maxsize=1)
 def get_chain_lock_manager() -> ChainLockManager:
-    return ChainLockManager()
+    import gavel.redis_client as _rc
+
+    return create_chain_lock_manager(_rc._client)
 
 
 # ---------------------------------------------------------------------------
@@ -309,6 +330,10 @@ async def require_gavel_token(
 
 def reset_dependency_cache() -> None:
     """Clear all lru_cache singletons. Test-only helper."""
+    global _rate_limiter_instance, _event_bus_instance
+    _rate_limiter_instance = None
+    _event_bus_instance = None
+
     for fn in (
         get_constitution,
         get_separation,
@@ -316,9 +341,7 @@ def reset_dependency_cache() -> None:
         get_liveness,
         get_blastbox,
         get_evidence_reviewer,
-        get_event_bus,
         get_agent_os,
-        get_rate_limiter,
         get_budget_tracker,
         get_chain_lock_manager,
         get_sessionmaker,

@@ -32,10 +32,13 @@ from gavel.anomaly_monitor import (
 from gavel.explainability import ExplainabilityRenderer, ExplanationReport
 from gavel.rate_limit import (
     RateLimiter,
+    InProcessRateLimiter,
+    RedisRateLimiter,
     RateLimitResult,
     BudgetTracker,
     BudgetCheckResult,
     BudgetStatus,
+    create_rate_limiter,
 )
 from gavel.artifact import (
     GovernanceArtifact,
@@ -94,10 +97,13 @@ __all__ = [
     "AnomalyMonitorConfig",
     # Rate limiting
     "RateLimiter",
+    "InProcessRateLimiter",
+    "RedisRateLimiter",
     "RateLimitResult",
     "BudgetTracker",
     "BudgetCheckResult",
     "BudgetStatus",
+    "create_rate_limiter",
     # Explainability
     "ExplainabilityRenderer",
     "ExplanationReport",

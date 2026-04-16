@@ -22,9 +22,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 log = logging.getLogger("gavel.rate_limit")
 
@@ -41,8 +44,27 @@ class RateLimitResult(BaseModel):
     reason: str = ""
 
 
-class RateLimiter:
-    """Per-agent sliding window rate limiter (ATF S-3).
+@runtime_checkable
+class RateLimiter(Protocol):
+    """Protocol for per-agent sliding window rate limiters (ATF S-3).
+
+    Implementations must provide configure, check_and_record, get_usage,
+    reset, and cleanup_inactive with the signatures below.
+    """
+
+    async def configure(self, agent_id: str, max_actions_per_minute: int) -> None: ...
+
+    async def check_and_record(self, agent_id: str, now: Optional[float] = None) -> RateLimitResult: ...
+
+    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict: ...
+
+    async def reset(self, agent_id: str) -> None: ...
+
+    async def cleanup_inactive(self, max_age_seconds: float = 86400, now: Optional[float] = None) -> int: ...
+
+
+class InProcessRateLimiter:
+    """Per-agent sliding window rate limiter (ATF S-3) — in-process implementation.
 
     Uses a sliding window log algorithm: each action's timestamp is recorded,
     and the window is pruned on every check. This gives exact per-minute
@@ -168,6 +190,199 @@ class RateLimiter:
         if removed:
             log.info("Rate limiter cleanup: removed %d inactive agents", removed)
         return removed
+
+
+class RedisRateLimiter:
+    """Per-agent sliding window rate limiter (ATF S-3) — Redis-backed implementation.
+
+    Uses Redis sorted sets for the sliding window log: each action is stored
+    as a member with score=timestamp. On check, expired entries are pruned
+    with ``ZREMRANGEBYSCORE``, the current count obtained with ``ZCARD``,
+    and new actions recorded with ``ZADD``.
+
+    Rate limits are stored in ``gavel:rate:limit:{agent_id}`` keys.
+    Last-seen timestamps are stored in ``gavel:rate:seen:{agent_id}`` keys.
+    Sliding windows are stored in ``gavel:rate:{agent_id}`` sorted sets.
+
+    This implementation enables accurate rate limiting across multiple
+    Gavel replicas sharing the same Redis instance.
+    """
+
+    # Key prefixes
+    _WINDOW_KEY = "gavel:rate:{agent_id}"
+    _LIMIT_KEY = "gavel:rate:limit:{agent_id}"
+    _SEEN_KEY = "gavel:rate:seen:{agent_id}"
+
+    def __init__(self, redis: "Redis") -> None:
+        self._redis = redis
+
+    def _window_key(self, agent_id: str) -> str:
+        return self._WINDOW_KEY.format(agent_id=agent_id)
+
+    def _limit_key(self, agent_id: str) -> str:
+        return self._LIMIT_KEY.format(agent_id=agent_id)
+
+    def _seen_key(self, agent_id: str) -> str:
+        return self._SEEN_KEY.format(agent_id=agent_id)
+
+    async def configure(self, agent_id: str, max_actions_per_minute: int) -> None:
+        """Set the rate limit for an agent (called at enrollment)."""
+        await self._redis.set(self._limit_key(agent_id), str(max_actions_per_minute))
+        log.debug("Rate limit configured (Redis): agent=%s limit=%d/min", agent_id, max_actions_per_minute)
+
+    async def check_and_record(self, agent_id: str, now: Optional[float] = None) -> RateLimitResult:
+        """Check if an action is allowed and record it if so.
+
+        Uses a Redis transaction (pipeline) to atomically prune the window,
+        check the count, and conditionally record the action.
+
+        Args:
+            agent_id: The agent requesting the action.
+            now: Current timestamp (seconds since epoch). Defaults to time.time().
+
+        Returns:
+            RateLimitResult with allowed=True if the action can proceed.
+        """
+        if now is None:
+            now = time.time()
+
+        # Update last-seen
+        await self._redis.set(self._seen_key(agent_id), str(now))
+
+        # Check if a limit is configured
+        raw_limit = await self._redis.get(self._limit_key(agent_id))
+        if raw_limit is None:
+            return RateLimitResult(allowed=True, reason="No rate limit configured")
+
+        limit = int(raw_limit)
+        wkey = self._window_key(agent_id)
+        cutoff = now - 60.0
+
+        # Use a pipeline for atomic prune + count + conditional add
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.zremrangebyscore(wkey, "-inf", cutoff)
+        pipe.zcard(wkey)
+        results = await pipe.execute()
+
+        current_count = results[1]
+
+        if current_count >= limit:
+            # Denied — find oldest entry to compute retry_after
+            oldest_entries = await self._redis.zrange(wkey, 0, 0, withscores=True)
+            if oldest_entries:
+                oldest_ts = oldest_entries[0][1]
+            else:
+                oldest_ts = now
+            retry_after = max(0.0, oldest_ts + 60.0 - now)
+
+            log.warning(
+                "S-3 rate limit exceeded (Redis): agent=%s count=%d limit=%d retry_after=%.1fs",
+                agent_id, current_count, limit, retry_after,
+            )
+            return RateLimitResult(
+                allowed=False,
+                current_count=current_count,
+                limit=limit,
+                retry_after_seconds=round(retry_after, 2),
+                reason=f"Rate limit exceeded: {current_count}/{limit} actions per minute",
+            )
+
+        # Allowed — record this action. Use timestamp as both score and
+        # a unique member (append a counter suffix to avoid collisions
+        # when multiple actions share the exact same timestamp).
+        member = f"{now}:{current_count}"
+        pipe2 = self._redis.pipeline(transaction=True)
+        pipe2.zadd(wkey, {member: now})
+        # Set a TTL on the sorted set so stale windows auto-expire
+        pipe2.expire(wkey, 120)
+        await pipe2.execute()
+
+        return RateLimitResult(
+            allowed=True,
+            current_count=current_count + 1,
+            limit=limit,
+            reason="Within rate limit",
+        )
+
+    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict:
+        """Get current rate limit usage for an agent (read-only, no recording)."""
+        if now is None:
+            now = time.time()
+
+        raw_limit = await self._redis.get(self._limit_key(agent_id))
+        limit = int(raw_limit) if raw_limit is not None else 0
+
+        wkey = self._window_key(agent_id)
+        cutoff = now - 60.0
+
+        # Prune and count
+        pipe = self._redis.pipeline(transaction=True)
+        pipe.zremrangebyscore(wkey, "-inf", cutoff)
+        pipe.zcard(wkey)
+        results = await pipe.execute()
+        current = results[1]
+
+        return {
+            "agent_id": agent_id,
+            "current_count": current,
+            "limit": limit,
+            "remaining": max(0, limit - current),
+        }
+
+    async def reset(self, agent_id: str) -> None:
+        """Clear the sliding window for an agent (e.g., on re-enrollment)."""
+        await self._redis.delete(self._window_key(agent_id))
+
+    async def cleanup_inactive(self, max_age_seconds: float = 86400, now: Optional[float] = None) -> int:
+        """Remove agents with no activity in the last *max_age_seconds*.
+
+        Scans for ``gavel:rate:seen:*`` keys and removes agents whose
+        last-seen timestamp is older than the cutoff.
+
+        Returns the number of agents removed.
+        """
+        if now is None:
+            now = time.time()
+        cutoff = now - max_age_seconds
+        removed = 0
+
+        # Scan for all seen keys
+        pattern = "gavel:rate:seen:*"
+        async for key in self._redis.scan_iter(match=pattern):
+            raw_ts = await self._redis.get(key)
+            if raw_ts is None:
+                continue
+            ts = float(raw_ts)
+            if ts < cutoff:
+                # Extract agent_id from key
+                if isinstance(key, bytes):
+                    key_str = key.decode("utf-8")
+                else:
+                    key_str = key
+                agent_id = key_str.removeprefix("gavel:rate:seen:")
+                pipe = self._redis.pipeline(transaction=True)
+                pipe.delete(self._window_key(agent_id))
+                pipe.delete(self._limit_key(agent_id))
+                pipe.delete(self._seen_key(agent_id))
+                await pipe.execute()
+                removed += 1
+
+        if removed:
+            log.info("Rate limiter cleanup (Redis): removed %d inactive agents", removed)
+        return removed
+
+
+def create_rate_limiter(redis: Optional["Redis"] = None) -> RateLimiter:
+    """Factory: return a Redis-backed limiter if *redis* is provided, else in-process.
+
+    Typical usage from the DI layer::
+
+        client = await get_redis()
+        limiter = create_rate_limiter(client)
+    """
+    if redis is not None:
+        return RedisRateLimiter(redis)  # type: ignore[return-value]
+    return InProcessRateLimiter()  # type: ignore[return-value]
 
 
 # ── S-4: Budget Enforcement ──────────────────────────────────────
