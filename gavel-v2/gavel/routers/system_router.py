@@ -69,10 +69,14 @@ async def event_stream(
 @system_router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page():
     """Serve the agent monitoring dashboard."""
-    html_path = Path(__file__).parent.parent / "dashboard.html"
-    if not html_path.exists():
-        raise HTTPException(status_code=404, detail="Dashboard not available")
-    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    # Prefer the new static/ layout; fall back to legacy single-file dashboard
+    static_path = Path(__file__).parent.parent / "static" / "dashboard.html"
+    if static_path.exists():
+        return HTMLResponse(static_path.read_text(encoding="utf-8"))
+    legacy_path = Path(__file__).parent.parent / "dashboard.html"
+    if legacy_path.exists():
+        return HTMLResponse(legacy_path.read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail="Dashboard not available")
 
 
 @system_router.get("/status")

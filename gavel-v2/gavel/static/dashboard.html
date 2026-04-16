@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gavel — Constitutional Governance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  /* ── CSS Variables ── */
+  :root {
+    --bg: #0c0c14; --surface: #141420; --surface2: #1c1c2c;
+    --border: #252536; --border-light: #2e2e44;
+    --text: #e8e8ef; --text2: #9898a8; --text3: #5e5e72;
+    --accent: #6c5ce7; --accent-dim: rgba(108,92,231,0.12); --accent-border: rgba(108,92,231,0.35);
+    --green: #00b894; --green-dim: rgba(0,184,148,0.10); --green-border: rgba(0,184,148,0.30);
+    --red: #ff6b6b; --red-dim: rgba(255,107,107,0.10); --red-border: rgba(255,107,107,0.30);
+    --amber: #fdcb6e; --amber-dim: rgba(253,203,110,0.10); --amber-border: rgba(253,203,110,0.30);
+    --blue: #74b9ff; --blue-dim: rgba(116,185,255,0.10);
+    --cyan: #81ecec; --cyan-dim: rgba(129,236,236,0.10);
+    --sidebar-w: 48px;
+    --inspector-w: 320px;
+  }
+
+  /* ── Reset ── */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; overflow: hidden; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Animations ── */
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes slideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-border { 0%, 100% { border-color: var(--red); } 50% { border-color: #ff9999; } }
+
+  /* ════════════════════════════════════════════════════════════════
+     TOP BAR
+     ════════════════════════════════════════════════════════════════ */
+  .top {
+    padding: 12px 24px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border); background: var(--surface); z-index: 10; position: relative;
+  }
+  .top-brand { display: flex; align-items: center; gap: 12px; }
+  .top-brand h1 { font-size: 16px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent); }
+  .top-brand .subtitle { font-size: 11px; color: var(--text3); border-left: 1px solid var(--border); padding-left: 12px; }
+  .top-right { display: flex; gap: 24px; align-items: center; }
+  .stat { text-align: center; min-width: 56px; }
+  .stat-val { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+  .stat-val.green { color: var(--green); }
+  .stat-val.red { color: var(--red); }
+  .stat-val.accent { color: var(--accent); }
+  .stat-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-top: 1px; }
+  .conn { display: flex; align-items: center; gap: 6px; font-size: 10px; padding: 4px 10px; border-radius: 12px; }
+  .conn-live { background: var(--green-dim); color: var(--green); }
+  .conn-dead { background: var(--red-dim); color: var(--red); }
+  .conn-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .conn-live .conn-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .conn-dead .conn-dot { background: var(--red); }
+  .cedar-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 600; padding: 3px 8px; border-radius: 3px; background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-border); letter-spacing: 0.5px; }
+  .cedar-badge .cedar-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+  .incident-counter { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 3px 8px; border-radius: 3px; background: var(--surface2); color: var(--text3); }
+  .incident-counter.has-overdue { background: var(--red-dim); color: var(--red); font-weight: 600; }
+
+  /* ════════════════════════════════════════════════════════════════
+     LAYOUT: sidebar + main + inspector
+     ════════════════════════════════════════════════════════════════ */
+  .app-layout {
+    display: flex; height: calc(100vh - 49px); /* top bar height */
+  }
+
+  /* ── Sidebar Navigation ── */
+  .sidebar {
+    width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; z-index: 5;
+  }
+  .sidebar-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+  .sidebar-item {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px 4px; cursor: pointer; border-left: 3px solid transparent;
+    color: var(--text3); transition: all 0.15s; position: relative; min-height: 48px;
+  }
+  .sidebar-item:hover { color: var(--text2); background: rgba(108,92,231,0.05); }
+  .sidebar-item.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); }
+  .sidebar-icon { font-size: 18px; line-height: 1; margin-bottom: 2px; }
+  .sidebar-label { font-size: 7px; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; line-height: 1.2; font-weight: 600; }
+
+  /* ── Main content ── */
+  .main-content {
+    flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0;
+  }
+
+  /* ── Tab content switching ── */
+  .tab-content { display: none; flex: 1; overflow: hidden; }
+  .tab-content.active { display: flex; flex-direction: column; }
+
+  /* ── Tab panel inner (scrollable) ── */
+  .tab-panel-inner { padding: 20px; max-width: 1400px; overflow-y: auto; flex: 1; }
+  .tab-panel-inner h2 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
+
+  /* ── Inspector Panel ── */
+  .inspector-panel {
+    width: var(--inspector-w); background: var(--surface); border-left: 1px solid var(--border);
+    flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
+    transform: translateX(100%); transition: transform 0.25s ease;
+    position: absolute; right: 0; top: 49px; height: calc(100vh - 49px); z-index: 20;
+  }
+  .inspector-panel.open { transform: translateX(0); }
+  .inspector-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .inspector-head h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); }
+  .inspector-close {
+    background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    border-radius: 4px; transition: all 0.15s;
+  }
+  .inspector-close:hover { background: var(--surface2); color: var(--text); }
+  .inspector-body { padding: 16px; overflow-y: auto; flex: 1; }
+
+  /* ════════════════════════════════════════════════════════════════
+     OPERATIONS GRID (6-panel)
+     ════════════════════════════════════════════════════════════════ */
+  .grid {
+    display: grid; grid-template-columns: 1fr 1.3fr 1fr; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: var(--border); flex: 1;
+  }
+  .panel { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+  .panel-head {
+    padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  .panel-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text3); }
+  .panel-badge { font-size: 10px; color: var(--text3); font-family: 'JetBrains Mono', monospace; }
+  .panel-body { padding: 8px; overflow-y: auto; flex: 1; }
+
+  /* ════════════════════════════════════════════════════════════════
+     TOPOLOGY TAB
+     ════════════════════════════════════════════════════════════════ */
+  .topology-container { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .topology-canvas-wrap { flex: 1; position: relative; }
+  #topology-canvas { width: 100%; height: 100%; display: block; background: var(--bg); }
+
+  /* Floating topology controls */
+  .topology-controls {
+    position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 5;
+  }
+  .topo-btn {
+    padding: 5px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text2); font-size: 10px;
+    cursor: pointer; font-family: 'JetBrains Mono', monospace; transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .topo-btn:hover { background: var(--surface2); color: var(--text); }
+  .topo-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-border); }
+  .topo-sep { width: 1px; background: var(--border); margin: 0 2px; }
+
+  /* Activity rail */
+  .activity-rail {
+    height: 120px; flex-shrink: 0; border-top: 1px solid var(--border);
+    background: var(--surface); display: flex; overflow-x: auto; overflow-y: hidden;
+    padding: 8px; gap: 8px; align-items: stretch;
+  }
+  .activity-card {
+    min-width: 180px; max-width: 220px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; flex-shrink: 0; display: flex; flex-direction: column;
+    gap: 4px; font-size: 10px; animation: slideIn 0.2s ease-out;
+  }
+  .activity-card-time { font-family: 'JetBrains Mono', monospace; color: var(--text3); font-size: 9px; }
+  .activity-card-type { font-weight: 600; font-size: 10px; }
+  .activity-card-detail { color: var(--text2); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ════════════════════════════════════════════════════════════════
+     SHARED COMPONENT STYLES
+     ════════════════════════════════════════════════════════════════ */
+
+  /* Chips & dots */
+  .chip { font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+  .chip-green { background: var(--green-dim); color: var(--green); }
+  .chip-red { background: var(--red-dim); color: var(--red); }
+  .chip-amber { background: var(--amber-dim); color: var(--amber); }
+  .chip-blue { background: var(--blue-dim); color: var(--blue); }
+  .chip-accent { background: var(--accent-dim); color: var(--accent); }
+  .chip-cyan { background: var(--cyan-dim); color: var(--cyan); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot-active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot-idle { background: var(--amber); }
+  .dot-dead { background: var(--red); animation: blink 1.2s infinite; }
+  .dot-suspended { background: var(--red); }
+  .empty-state { color: var(--text3); font-size: 11px; text-align: center; padding: 20px; font-style: italic; }
+
+  /* Agent cards */
+  .agent-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; transition: border-color 0.2s; cursor: pointer; }
+  .agent-card:hover { border-color: var(--border-light); }
+  .agent-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .agent-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .agent-name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-id { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text3); margin-top: 3px; }
+  .agent-meta { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+  .agent-activity { font-size: 10px; color: var(--text2); margin-top: 4px; font-style: italic; }
+  .agent-trust-bar { height: 3px; background: var(--surface2); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .agent-trust-fill { height: 100%; border-radius: 2px; background: var(--green); transition: width 0.5s; }
+
+  /* Gate activity */
+  .gate-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid rgba(37,37,54,0.6); font-size: 11px; animation: slideIn 0.2s ease-out; }
+  .gate-decision { font-weight: 700; font-size: 10px; min-width: 52px; text-align: center; padding: 2px 0; border-radius: 3px; }
+  .gate-allow { background: var(--green-dim); color: var(--green); }
+  .gate-deny { background: var(--red-dim); color: var(--red); }
+  .gate-govern { background: var(--amber-dim); color: var(--amber); }
+  .gate-tool { font-family: 'JetBrains Mono', monospace; color: var(--text); font-size: 10px; min-width: 44px; }
+  .gate-risk { font-family: 'JetBrains Mono', monospace; font-size: 10px; min-width: 32px; }
+  .gate-reason { color: var(--text3); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .gate-time { font-family: 'JetBrains Mono', monospace; color: var(--text3); font-size: 9px; flex-shrink: 0; }
+  .gate-cedar { color: var(--red); font-weight: 600; font-size: 9px; }
+
+  /* Governance chains */
+  .chain-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; }
+  .chain-card.escalated { border-color: var(--amber-border); }
+  .chain-header { display: flex; align-items: center; justify-content: space-between; }
+  .chain-id { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-size: 11px; }
+  .chain-detail { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .chain-tool { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text); }
+  .chain-agent { font-size: 10px; color: var(--text3); }
+  .chain-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .chain-sla { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text3); }
+  .chain-roster { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+
+  /* Event log */
+  .event-row { padding: 5px 10px; border-bottom: 1px solid rgba(37,37,54,0.4); font-size: 10px; display: flex; gap: 8px; align-items: flex-start; animation: slideIn 0.15s ease-out; }
+  .event-time { font-family: 'JetBrains Mono', monospace; color: var(--text3); font-size: 9px; min-width: 70px; flex-shrink: 0; }
+  .event-type { font-weight: 600; min-width: 100px; flex-shrink: 0; font-size: 10px; }
+  .event-detail { color: var(--text2); word-break: break-word; font-size: 10px; }
+  .event-type.chain_event { color: var(--accent); }
+  .event-type.agent_registered { color: var(--green); }
+  .event-type.agent_heartbeat { color: var(--text3); }
+  .event-type.agent_killed { color: var(--red); }
+  .event-type.agent_dead { color: var(--red); }
+  .event-type.agent_promoted { color: var(--cyan); }
+  .event-type.agent_demoted { color: var(--amber); }
+  .event-type.escalation { color: var(--amber); }
+  .event-type.action { color: var(--blue); }
+  .event-type.action_reported { color: var(--blue); }
+  .event-type.gate_check { color: var(--cyan); }
+  .event-type.agent_status_change { color: var(--green); }
+
+  /* SLA bars */
+  .sla-row { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .sla-bar-bg { height: 5px; background: var(--surface2); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+  .sla-bar-fill { height: 100%; border-radius: 3px; transition: width 1s linear; }
+  .sla-normal .sla-bar-fill { background: var(--green); }
+  .sla-warning .sla-bar-fill { background: var(--amber); }
+  .sla-critical .sla-bar-fill { background: var(--red); animation: pulse 0.5s infinite; }
+
+  /* Kill switch */
+  .kill-btn { background: var(--red-dim); color: var(--red); border: 1px solid var(--red-border); font-size: 10px; font-weight: 700; padding: 5px 14px; border-radius: 4px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .kill-btn:hover { background: var(--red); color: #fff; }
+  .revive-btn { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-border); font-size: 10px; font-weight: 700; padding: 5px 14px; border-radius: 4px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .revive-btn:hover { background: var(--green); color: #fff; }
+  .kill-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .kill-global { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 10px 24px; border-radius: 6px; cursor: pointer; border: none; margin: 12px auto; display: block; letter-spacing: 1px; text-transform: uppercase; transition: filter 0.15s; }
+  .kill-global:hover { filter: brightness(1.2); }
+
+  /* Buttons */
+  .btn { padding: 6px 14px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn:hover { background: var(--surface2); color: var(--text); }
+  .btn-primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-border); font-weight: 600; }
+  .btn-primary:hover { background: var(--accent); color: #fff; }
+  .btn-danger { background: var(--red-dim); color: var(--red); border-color: var(--red-border); }
+  .btn-danger:hover { background: var(--red); color: #fff; }
+  .btn-sm { padding: 3px 8px; font-size: 10px; }
+  .btn-approve { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-border); font-size: 10px; font-weight: 700; padding: 4px 14px; border-radius: 4px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .btn-approve:hover { background: var(--green); color: #fff; }
+  .btn-deny { background: var(--red-dim); color: var(--red); border: 1px solid var(--red-border); font-size: 10px; font-weight: 700; padding: 4px 14px; border-radius: 4px; cursor: pointer; transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .btn-deny:hover { background: var(--red); color: #fff; }
+
+  /* Data tables */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th { text-align: left; padding: 10px 12px; color: var(--text3); border-bottom: 1px solid var(--border); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(37,37,54,0.4); color: var(--text); font-size: 12px; }
+  .data-table tr:hover td { background: var(--surface); }
+
+  /* Status indicators */
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-dot.idle { background: var(--amber); }
+  .status-dot.suspended { background: var(--red); }
+  .status-dot.dead { background: var(--text3); }
+  .trust-bar { width: 80px; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .trust-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+
+  /* Severity badges */
+  .severity-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .severity-critical { background: var(--red-dim); color: var(--red); }
+  .severity-serious { background: var(--amber-dim); color: var(--amber); }
+  .severity-standard { background: rgba(253,203,110,0.15); color: #fdcb6e; }
+  .severity-minor { background: rgba(94,94,114,0.2); color: var(--text3); }
+  .severity-enrolled { background: var(--green-dim); color: var(--green); }
+  .severity-pending { background: var(--amber-dim); color: var(--amber); }
+  .severity-incomplete { background: var(--red-dim); color: var(--red); }
+  .severity-suspended { background: rgba(255,107,107,0.15); color: #ff8800; }
+  .severity-unknown { background: rgba(94,94,114,0.2); color: var(--text3); }
+
+  /* Incident cards */
+  .incident-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .incident-card.overdue { border-color: var(--red); animation: pulse-border 2s infinite; }
+
+  /* Chain timeline */
+  .tl-chain-item { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s; }
+  .tl-chain-item:hover { border-color: var(--border-light); }
+  .tl-chain-events { padding-left: 20px; border-left: 2px solid var(--border); margin: 12px 0 12px 20px; }
+  .tl-chain-event { padding: 8px 0 8px 16px; position: relative; font-size: 12px; color: var(--text2); }
+  .tl-chain-event::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); position: absolute; left: -21px; top: 12px; }
+
+  /* Chain status badges */
+  .chain-status-badge { padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .chain-status-badge.pending { background: var(--amber-dim); color: var(--amber); }
+  .chain-status-badge.approved, .chain-status-badge.completed { background: var(--green-dim); color: var(--green); }
+  .chain-status-badge.denied { background: var(--red-dim); color: var(--red); }
+  .chain-status-badge.escalated { background: var(--amber-dim); color: var(--amber); }
+  .chain-status-badge.timed_out { background: rgba(255,136,0,0.12); color: #ff8800; }
+
+  /* Invariant cards */
+  .invariant-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .invariant-card .article-badge { display: inline-block; padding: 2px 8px; background: var(--accent); color: #fff; border-radius: 3px; font-size: 11px; font-weight: 700; margin-bottom: 8px; }
+  .invariant-card .inv-text { color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+  .invariant-card .enforcement { color: var(--text3); font-size: 12px; font-style: italic; }
+
+  /* Summary cards */
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; text-align: center; }
+  .summary-card .value { font-size: 32px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; }
+  .summary-card .label { font-size: 11px; color: var(--text3); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* Article group heading */
+  .article-group-heading { color: var(--accent); margin: 24px 0 12px; font-size: 14px; font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .article-group-heading:first-child { margin-top: 0; }
+
+  /* Forms */
+  .form-group { margin-bottom: 12px; }
+  .form-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text2); margin-bottom: 4px; display: block; }
+  .form-sublabel { font-size: 9px; color: var(--text3); margin-bottom: 4px; display: block; }
+  .form-input { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; color: var(--text); font-size: 12px; font-family: 'Inter', sans-serif; }
+  .form-input:focus { outline: none; border-color: var(--accent); }
+  .form-input::placeholder { color: var(--text3); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .form-section { font-size: 11px; font-weight: 600; color: var(--accent); margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .form-submit { background: var(--accent); color: #fff; border: none; font-size: 12px; font-weight: 700; padding: 10px 24px; border-radius: 6px; cursor: pointer; width: 100%; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-submit:hover { filter: brightness(1.15); }
+  .form-error { color: var(--red); font-size: 10px; margin-top: 6px; }
+  .form-success { color: var(--green); font-size: 11px; font-weight: 600; margin-top: 8px; }
+  .inline-form { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .inline-form .form-group { margin-bottom: 10px; }
+  .inline-form label { display: block; color: var(--text3); font-size: 11px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .inline-form input, .inline-form textarea, .inline-form select { width: 100%; padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: inherit; font-size: 12px; }
+  .inline-form input:focus, .inline-form textarea:focus, .inline-form select:focus { outline: none; border-color: var(--accent); }
+  .inline-form textarea { resize: vertical; min-height: 50px; }
+
+  /* Modals */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 520px; max-height: 85vh; overflow-y: auto; padding: 0; }
+  .modal-head { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-head h2 { font-size: 14px; font-weight: 600; }
+  .modal-close { background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer; }
+  .modal-body { padding: 16px 20px; }
+  .compliance-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; align-items: center; justify-content: center; }
+  .compliance-modal-overlay.active { display: flex; }
+  .compliance-modal { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 800px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .compliance-modal h3 { color: var(--accent); margin-bottom: 16px; font-size: 16px; }
+  .compliance-modal-close { float: right; background: none; border: none; color: var(--text3); font-size: 20px; cursor: pointer; }
+  .compliance-modal-close:hover { color: var(--text); }
+  .annex-section { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-bottom: 8px; }
+  .annex-section h4 { color: var(--accent); font-size: 13px; margin-bottom: 6px; }
+  .annex-section p, .annex-section li { color: var(--text2); font-size: 12px; line-height: 1.5; }
+
+  /* Enrollment alerts */
+  .enroll-alert { background: var(--amber-dim); border: 1px solid var(--amber-border); border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; animation: slideIn 0.3s ease-out; }
+  .enroll-alert-text { font-size: 11px; color: var(--amber); font-weight: 500; }
+  .enroll-btn { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent-border); font-size: 10px; font-weight: 700; padding: 4px 12px; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
+  .enroll-btn:hover { background: var(--accent); color: #fff; }
+
+  /* ════════════════════════════════════════════════════════════════
+     RESPONSIVE
+     ════════════════════════════════════════════════════════════════ */
+  @media (max-width: 900px) {
+    .sidebar { width: 40px; }
+    .sidebar-label { display: none; }
+    .sidebar-item { padding: 10px 2px; min-height: 40px; }
+    .grid { grid-template-columns: 1fr; grid-template-rows: auto; }
+    .top-right { gap: 12px; }
+    .stat { min-width: 40px; }
+    .stat-val { font-size: 16px; }
+    .inspector-panel { width: 280px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════════
+     TOP BAR
+     ════════════════════════════════════════════════════════════════ -->
+<div class="top">
+  <div class="top-brand">
+    <h1>GAVEL</h1>
+    <span class="subtitle">Constitutional Governance Dashboard</span>
+    <span class="cedar-badge"><span class="cedar-dot"></span>CEDAR ENFORCEMENT ACTIVE</span>
+  </div>
+  <div class="top-right">
+    <div class="stat"><div class="stat-val green" id="stat-agents">0</div><div class="stat-label">Agents</div></div>
+    <div class="stat"><div class="stat-val accent" id="stat-chains">0</div><div class="stat-label">Chains</div></div>
+    <div class="stat"><div class="stat-val" id="stat-gates">0</div><div class="stat-label">Gate Checks</div></div>
+    <div class="stat"><div class="stat-val red" id="stat-denials">0</div><div class="stat-label">Denials</div></div>
+    <span class="incident-counter" id="incident-counter">0 incidents</span>
+    <div class="conn conn-dead" id="conn-indicator">
+      <div class="conn-dot"></div>
+      <span id="conn-text">Connecting...</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     APP LAYOUT: Sidebar + Main + Inspector
+     ════════════════════════════════════════════════════════════════ -->
+<div class="app-layout">
+
+  <!-- ── Sidebar Navigation ── -->
+  <nav class="sidebar">
+    <div class="sidebar-nav">
+      <div class="sidebar-item active" data-tab="operations" title="Operations">
+        <span class="sidebar-icon">&#9638;</span>
+        <span class="sidebar-label">Ops</span>
+      </div>
+      <div class="sidebar-item" data-tab="topology" title="Topology">
+        <span class="sidebar-icon">&#9672;</span>
+        <span class="sidebar-label">Topo</span>
+      </div>
+      <div class="sidebar-item" data-tab="agents" title="Agents &amp; Enrollment">
+        <span class="sidebar-icon">&#9673;</span>
+        <span class="sidebar-label">Agents</span>
+      </div>
+      <div class="sidebar-item" data-tab="timeline" title="Governance Timeline">
+        <span class="sidebar-icon">&#9776;</span>
+        <span class="sidebar-label">Timeline</span>
+      </div>
+      <div class="sidebar-item" data-tab="incidents" title="Incidents">
+        <span class="sidebar-icon">&#9888;</span>
+        <span class="sidebar-label">Incidents</span>
+      </div>
+      <div class="sidebar-item" data-tab="compliance" title="Compliance">
+        <span class="sidebar-icon">&#9641;</span>
+        <span class="sidebar-label">Comply</span>
+      </div>
+      <div class="sidebar-item" data-tab="constitution" title="Constitution">
+        <span class="sidebar-icon">&#9782;</span>
+        <span class="sidebar-label">Const</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main Content Area ── -->
+  <div class="main-content">
+
+    <!-- Tab: Operations (6-panel grid) -->
+    <div class="tab-content active" id="tab-operations">
+      <div class="grid">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Agent Roster</span>
+            <span class="panel-badge" id="agent-count">0</span>
+          </div>
+          <div class="panel-body" id="agents-panel">
+            <div class="empty-state">No agents registered</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Gate Activity</span>
+            <span class="panel-badge" id="gate-count">0</span>
+          </div>
+          <div class="panel-body" id="gate-panel" style="padding:0"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Event Stream</span>
+            <span class="panel-badge" id="event-count">0</span>
+          </div>
+          <div class="panel-body" id="events-panel" style="padding:0"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Governance Chains</span>
+            <span class="panel-badge" id="chain-count">0</span>
+          </div>
+          <div class="panel-body" id="chains-panel">
+            <div class="empty-state">No governance chains</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">SLA / Liveness</span>
+            <span class="panel-badge" id="sla-count">0</span>
+          </div>
+          <div class="panel-body" id="sla-panel">
+            <div class="empty-state">No active SLA timers</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title" style="color:var(--red)">Kill Switch</span>
+          </div>
+          <div class="panel-body" id="kill-panel">
+            <div class="empty-state">No agents to manage</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Topology -->
+    <div class="tab-content" id="tab-topology">
+      <div class="topology-container">
+        <div class="topology-canvas-wrap">
+          <svg id="topology-canvas"></svg>
+          <div class="topology-controls">
+            <button class="topo-btn active" data-control="constraints">Constraints</button>
+            <button class="topo-btn active" data-control="inactive">Inactive</button>
+            <button class="topo-btn active" data-control="chains">Chains</button>
+            <div class="topo-sep"></div>
+            <button class="topo-btn" data-control="focus">Focus</button>
+            <button class="topo-btn" data-control="zoom-reset">Zoom Reset</button>
+            <button class="topo-btn" data-control="export-svg">SVG Export</button>
+          </div>
+        </div>
+        <div class="activity-rail" id="activity-rail">
+          <div class="empty-state" style="width:100%;align-self:center">Waiting for events...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Agents & Enrollment -->
+    <div class="tab-content" id="tab-agents">
+      <div class="tab-panel-inner">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="margin:0">Agents &amp; Enrollment</h2>
+          <button class="btn" id="agents-refresh-btn">Refresh</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:30px"></th>
+              <th>Agent ID</th>
+              <th>Display Name</th>
+              <th>Type</th>
+              <th>Tier</th>
+              <th>Trust Score</th>
+              <th>DID</th>
+              <th>Enrollment</th>
+              <th>Owner</th>
+            </tr>
+          </thead>
+          <tbody id="agents-tab-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab: Governance Timeline -->
+    <div class="tab-content" id="tab-timeline">
+      <div class="tab-panel-inner">
+        <h2>Governance Timeline</h2>
+        <div id="timeline-container"><p style="color:var(--text3);font-style:italic">No governance chains yet.</p></div>
+      </div>
+    </div>
+
+    <!-- Tab: Incidents -->
+    <div class="tab-content" id="tab-incidents">
+      <div class="tab-panel-inner">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="margin:0">Incidents</h2>
+          <button class="btn btn-primary" id="incident-create-btn">Create Incident</button>
+        </div>
+        <div id="inc-form" style="display:none" class="inline-form">
+          <div class="form-group">
+            <label>Agent ID</label>
+            <input id="inc-agent" placeholder="e.g. agent-001">
+          </div>
+          <div class="form-group">
+            <label>Title</label>
+            <input id="inc-title" placeholder="Incident title">
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="inc-desc" placeholder="Describe the incident..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Severity</label>
+            <select id="inc-severity">
+              <option value="">Auto-classify</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="SERIOUS">Serious</option>
+              <option value="STANDARD">Standard</option>
+              <option value="MINOR">Minor</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" id="inc-submit-btn">Submit</button>
+            <button class="btn" id="inc-cancel-btn">Cancel</button>
+          </div>
+        </div>
+        <div id="incidents-container"><p style="color:var(--text3);font-style:italic">Loading incidents...</p></div>
+      </div>
+    </div>
+
+    <!-- Tab: Compliance -->
+    <div class="tab-content" id="tab-compliance">
+      <div class="tab-panel-inner">
+        <h2>Compliance Overview</h2>
+        <div id="compliance-container"><p style="color:var(--text3);font-style:italic">Loading compliance data...</p></div>
+        <div id="compliance-agents-list"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Constitution -->
+    <div class="tab-content" id="tab-constitution">
+      <div class="tab-panel-inner">
+        <h2>Constitutional Invariants</h2>
+        <div id="constitution-container"><p style="color:var(--text3);font-style:italic">Loading constitution...</p></div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+
+  <!-- ── Inspector Panel (right side, hidden by default) ── -->
+  <div id="inspector-panel" class="inspector-panel">
+    <div class="inspector-head">
+      <h3>Inspector</h3>
+      <button class="inspector-close" id="inspector-close">&times;</button>
+    </div>
+    <div class="inspector-body" id="inspector-body">
+      <div class="empty-state">Select an agent or node to inspect</div>
+    </div>
+  </div>
+
+</div><!-- /app-layout -->
+
+<!-- ── Modals ── -->
+
+<!-- Compliance Annex IV Modal -->
+<div class="compliance-modal-overlay" id="annex-modal">
+  <div class="compliance-modal">
+    <button class="compliance-modal-close" id="annex-modal-close">&times;</button>
+    <h3 id="annex-modal-title">Annex IV Documentation</h3>
+    <div id="annex-modal-body"></div>
+  </div>
+</div>
+
+<!-- Enrollment Modal -->
+<div class="modal-overlay" id="enroll-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Agent Enrollment — ATF Pre-Flight</h2>
+      <button class="modal-close" id="enroll-modal-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="enroll-form-target"></div>
+      <div class="form-group">
+        <label class="form-label">Agent ID</label>
+        <input class="form-input" id="enroll-agent-id" readonly>
+      </div>
+      <div class="form-section">Accountability</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Owner</label>
+          <label class="form-sublabel">Human accountable for this agent</label>
+          <input class="form-input" id="enroll-owner" placeholder="e.g. jlugo">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Contact</label>
+          <input class="form-input" id="enroll-contact" placeholder="email or Slack">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Budget (tokens)</label>
+          <input class="form-input" id="enroll-budget-tokens" type="number" placeholder="e.g. 1000000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Budget (USD)</label>
+          <input class="form-input" id="enroll-budget-usd" type="number" step="0.01" placeholder="e.g. 50.00">
+        </div>
+      </div>
+      <div class="form-section">ATF I-4: Purpose Declaration</div>
+      <div class="form-group">
+        <label class="form-label">Purpose</label>
+        <input class="form-input" id="enroll-purpose" placeholder="Why does this agent exist?">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Operational Scope</label>
+          <input class="form-input" id="enroll-scope" placeholder="e.g. development, testing">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Risk Tier</label>
+          <select class="form-input" id="enroll-risk">
+            <option value="low">Low</option>
+            <option value="standard" selected>Standard</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-section">ATF I-5: Capabilities &amp; S-1/S-2: Boundaries</div>
+      <div class="form-group">
+        <label class="form-label">Tools</label>
+        <label class="form-sublabel">Comma-separated list of tools</label>
+        <input class="form-input" id="enroll-tools" placeholder="Read, Write, Edit, Bash, Glob, Grep">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Allowed Paths</label>
+        <input class="form-input" id="enroll-paths" placeholder="e.g. ~/project/, /tmp/">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Allowed Actions</label>
+        <input class="form-input" id="enroll-actions" placeholder="e.g. read, write, execute">
+      </div>
+      <div class="form-section">Fallback Behavior</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">On Gateway Unreachable</label>
+          <select class="form-input" id="enroll-fallback-gw"><option value="stop" selected>Stop</option><option value="degrade">Degrade</option><option value="continue">Continue</option></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">On Budget Exceeded</label>
+          <select class="form-input" id="enroll-fallback-budget"><option value="stop" selected>Stop</option><option value="alert">Alert</option><option value="continue">Continue</option></select>
+        </div>
+      </div>
+      <div id="enroll-errors"></div>
+      <div id="enroll-success"></div>
+      <button class="form-submit" id="enroll-submit-btn">Enroll Agent</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     SIDEBAR TAB SWITCHING (minimal inline — no app logic)
+     ════════════════════════════════════════════════════════════════ -->
+<script>
+  // Sidebar tab switching
+  document.querySelectorAll('.sidebar-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const tab = item.dataset.tab;
+      // Update sidebar active state
+      document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+      // Switch tab content
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+      const target = document.getElementById('tab-' + tab);
+      if (target) target.classList.add('active');
+    });
+  });
+
+  // Inspector close button
+  document.getElementById('inspector-close').addEventListener('click', () => {
+    document.getElementById('inspector-panel').classList.remove('open');
+  });
+</script>
+
+<!-- ════════════════════════════════════════════════════════════════
+     JS MODULE BOOTSTRAP
+     ════════════════════════════════════════════════════════════════ -->
+<script type="module">
+  import { GavelState } from '/static/js/state.js';
+  import { TopologyRenderer } from '/static/js/topology.js';
+  import { InspectorPanel } from '/static/js/inspector.js';
+  import { initDashboard } from '/static/js/dashboard.js';
+
+  // Initialize
+  await GavelState.fetchAgents();
+  GavelState.connectSSE();
+
+  const topology = new TopologyRenderer('#topology-canvas');
+  const inspector = new InspectorPanel('#inspector-panel');
+  const dashboard = initDashboard();
+
+  GavelState.subscribe(() => {
+    topology.render(GavelState);
+    inspector.update(GavelState);
+    dashboard.update(GavelState);
+  });
+</script>
+
+</body>
+</html>

@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 
 from gavel.request_id import RequestIDMiddleware, configure_request_id_logging
 
@@ -260,6 +261,8 @@ app.include_router(compliance_router, prefix="/v1")
 app.include_router(governance_router, prefix="/v1")
 app.include_router(agent_router, prefix="/v1")
 app.include_router(system_router, prefix="/v1")
+
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
 
 app.add_middleware(
     CORSMiddleware,
