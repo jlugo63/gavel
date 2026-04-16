@@ -39,25 +39,33 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
-import hmac
 import json
 import logging
-import os
 import re
-import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 import uvicorn
-import yaml
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 
+from gavel.proxy.config import (
+    DOCKER_PROXY_PORT,
+    PROXY_PORT,
+    TOKEN_HEADER,
+    DomainEntry,
+    ProxyConfig,
+)
+from gavel.proxy.domain import DomainMatcher
+from gavel.proxy.enforcement import (
+    EnforcementAction,
+    EnforcementLedger,
+    LedgerEntry,
+)
+from gavel.proxy.token_validator import TokenValidator
 from gavel.request_id import RequestIDMiddleware
 
 # ---------------------------------------------------------------------------
@@ -67,353 +75,11 @@ from gavel.request_id import RequestIDMiddleware
 
 log = logging.getLogger("gavel.proxy")
 
-# ---------------------------------------------------------------------------
-# Configuration (pydantic)
-# ---------------------------------------------------------------------------
-
-PROXY_PORT = 8200
-DOCKER_PROXY_PORT = 8201
-TOKEN_HEADER = "X-Gavel-Token"
-
-
-class DomainEntry(BaseModel):
-    """A single AI API domain pattern with a human-readable label."""
-
-    pattern: str
-    label: str = ""
-
-
-class ProxyConfig(BaseModel):
-    """Top-level configuration for the enforcement proxy."""
-
-    port: int = Field(default=PROXY_PORT, description="HTTP proxy listen port")
-    host: str = Field(default="0.0.0.0", description="Bind address")
-    default_deny: bool = Field(
-        default=False,
-        description="Block ALL traffic unless a valid Gavel token is present",
-    )
-    gavel_api_url: str = Field(
-        default_factory=lambda: os.getenv("GAVEL_API_URL", "http://localhost:8100"),
-        description="Base URL of the Gavel control-plane API",
-    )
-    shared_secret: str = Field(
-        default_factory=lambda: os.getenv("GAVEL_SHARED_SECRET", ""),
-        description="HMAC shared secret for local token validation",
-    )
-    ledger_path: Path = Field(
-        default_factory=lambda: Path(
-            os.getenv("GAVEL_ENFORCEMENT_LEDGER", "enforcement_ledger.jsonl")
-        ),
-        description="Path to the append-only enforcement ledger (JSONL)",
-    )
-    docker_socket: str = Field(
-        default_factory=lambda: os.getenv("DOCKER_SOCKET", "/var/run/docker.sock"),
-        description="Path to the Docker Engine unix socket",
-    )
-    docker_enabled: bool = Field(
-        default=False, description="Also start Docker socket proxy"
-    )
-    docker_port: int = Field(
-        default=DOCKER_PROXY_PORT, description="Docker proxy listen port"
-    )
-    ai_domains: list[DomainEntry] = Field(default_factory=list)
-
-    def effective_domains(self) -> list[DomainEntry]:
-        return self.ai_domains if self.ai_domains else _default_ai_domains()
-
-
-def _default_ai_domains() -> list[DomainEntry]:
-    return [
-        DomainEntry(pattern="api.openai.com", label="OpenAI API"),
-        DomainEntry(pattern="api.anthropic.com", label="Anthropic API"),
-        DomainEntry(pattern="api.cohere.com", label="Cohere API"),
-        DomainEntry(pattern="generativelanguage.googleapis.com", label="Google Gemini API"),
-        DomainEntry(pattern="localhost:11434", label="Ollama (local)"),
-        DomainEntry(pattern="127.0.0.1:11434", label="Ollama (local alt)"),
-        DomainEntry(pattern="*.docker.com", label="Docker services"),
-        DomainEntry(pattern="copilot.microsoft.com", label="GitHub Copilot"),
-        DomainEntry(pattern="ai.jetbrains.com", label="JetBrains AI"),
-        DomainEntry(pattern="api2.cursor.sh", label="Cursor AI"),
-        DomainEntry(pattern="*.warp.dev", label="Warp terminal AI"),
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Models
-# ---------------------------------------------------------------------------
-
-class EnforcementAction(str, Enum):
-    ALLOWED = "ALLOWED"
-    BLOCKED = "BLOCKED"
-
-
-class LedgerEntry(BaseModel):
-    """Append-only, hash-chained enforcement event."""
-
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    source_agent: str = ""
-    destination_domain: str = ""
-    method: str = ""
-    path: str = ""
-    action: EnforcementAction = EnforcementAction.BLOCKED
-    reason: str = ""
-    token_id: str = ""
-    prev_hash: str = ""
-    entry_hash: str = ""
-
-    def compute_hash(self, prev: str = "") -> str:
-        """SHA-256 over deterministic JSON of the entry fields (excluding entry_hash)."""
-        payload = self.model_dump(exclude={"entry_hash"})
-        payload["prev_hash"] = prev
-        raw = json.dumps(payload, sort_keys=True, default=str).encode()
-        return hashlib.sha256(raw).hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Enforcement Ledger (append-only, hash-chained)
-# ---------------------------------------------------------------------------
-
-class EnforcementLedger:
-    """
-    Append-only hash-chained log.  Each entry's hash covers the previous
-    entry's hash, making the ledger tamper-evident -- the same principle
-    used by ``gavel.chain.GovernanceChain``.
-    """
-
-    def __init__(self, path: Path | None = None):
-        self._path = path or Path("enforcement_ledger.jsonl")
-        self._last_hash: str = "genesis"
-        self._lock = asyncio.Lock()
-        self._restore_chain_tip()
-
-    def _restore_chain_tip(self) -> None:
-        """Read the last line of an existing ledger to resume the hash chain."""
-        if not self._path.exists():
-            return
-        try:
-            with open(self._path, "r", encoding="utf-8") as fh:
-                last_line = ""
-                for line in fh:
-                    stripped = line.strip()
-                    if stripped:
-                        last_line = stripped
-                if last_line:
-                    data = json.loads(last_line)
-                    self._last_hash = data.get("entry_hash", "genesis")
-        except Exception:
-            log.warning("Could not restore ledger chain tip; starting fresh chain.")
-
-    async def append(self, entry: LedgerEntry) -> LedgerEntry:
-        async with self._lock:
-            entry.prev_hash = self._last_hash
-            entry.entry_hash = entry.compute_hash(self._last_hash)
-            self._last_hash = entry.entry_hash
-
-            with open(self._path, "a", encoding="utf-8") as fh:
-                fh.write(entry.model_dump_json() + "\n")
-
-            log.info(
-                "LEDGER %s | %s %s%s | agent=%s token=%s reason=%s hash=%s",
-                entry.action.value,
-                entry.method,
-                entry.destination_domain,
-                entry.path,
-                entry.source_agent or "-",
-                entry.token_id or "-",
-                entry.reason,
-                entry.entry_hash[:16],
-            )
-            return entry
-
-    async def verify_integrity(self) -> tuple[bool, int, list[str]]:
-        """Walk the full ledger and verify every hash link."""
-        if not self._path.exists():
-            return True, 0, []
-        errors: list[str] = []
-        prev_hash = "genesis"
-        count = 0
-        with open(self._path, "r", encoding="utf-8") as fh:
-            for lineno, raw in enumerate(fh, start=1):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                count += 1
-                try:
-                    data = json.loads(raw)
-                    entry = LedgerEntry(**data)
-                    expected = entry.compute_hash(prev_hash)
-                    if entry.entry_hash != expected:
-                        errors.append(
-                            f"Line {lineno}: hash mismatch "
-                            f"(expected {expected[:16]}..., got {entry.entry_hash[:16]}...)"
-                        )
-                    if entry.prev_hash != prev_hash:
-                        errors.append(
-                            f"Line {lineno}: prev_hash mismatch "
-                            f"(expected {prev_hash[:16]}..., got {entry.prev_hash[:16]}...)"
-                        )
-                    prev_hash = entry.entry_hash
-                except Exception as exc:
-                    errors.append(f"Line {lineno}: parse error -- {exc}")
-        return len(errors) == 0, count, errors
-
-
-# ---------------------------------------------------------------------------
-# Domain matcher
-# ---------------------------------------------------------------------------
-
-class DomainMatcher:
-    """Match request hosts against configured AI API domain patterns."""
-
-    def __init__(self, domains: list[DomainEntry] | None = None):
-        self._domains = domains or _default_ai_domains()
-        self._compiled: list[tuple[re.Pattern, str]] = []
-        for entry in self._domains:
-            regex = self._glob_to_regex(entry.pattern)
-            self._compiled.append((re.compile(regex, re.IGNORECASE), entry.label or entry.pattern))
-
-    @staticmethod
-    def _glob_to_regex(glob: str) -> str:
-        """Convert a domain glob (e.g. ``*.docker.com``) to a regex."""
-        escaped = re.escape(glob).replace(r"\*", r"[a-zA-Z0-9\-\.]*")
-        return f"^{escaped}$"
-
-    def match(self, host: str) -> tuple[bool, str]:
-        """Returns ``(is_ai_domain, label)`` for a given host string."""
-        host_no_port = host.split(":")[0] if ":" in host else host
-        for pattern, label in self._compiled:
-            if pattern.match(host) or pattern.match(host_no_port):
-                return True, label
-        return False, ""
-
-    @classmethod
-    def from_yaml(cls, path: str | Path) -> DomainMatcher:
-        """Load domain config from a YAML file.
-
-        Expected format::
-
-            ai_domains:
-              - pattern: "api.openai.com"
-                label: "OpenAI API"
-        """
-        with open(path, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        raw = data.get("ai_domains", data if isinstance(data, list) else [])
-        domains = [DomainEntry(**d) if isinstance(d, dict) else d for d in raw]
-        return cls(domains)
-
-
-# ---------------------------------------------------------------------------
-# Token validation
-# ---------------------------------------------------------------------------
-
-class TokenValidator:
-    """
-    Validate Gavel governance tokens.
-
-    Supports two modes:
-
-    1. **Remote** -- POST to the Gavel API ``/api/v1/tokens/validate``.
-    2. **Local** -- HMAC-SHA256 with a shared secret (offline fast path).
-
-    Token format (local mode)::
-
-        <agent_id>.<expiry_epoch>.<hmac_hex>
-
-    Local validation is attempted first when a shared secret is configured;
-    the validator falls back to remote validation when local is inconclusive.
-    """
-
-    def __init__(self, config: ProxyConfig):
-        api_base = config.gavel_api_url.rstrip("/")
-        self._validation_url = f"{api_base}/api/v1/tokens/validate"
-        self._shared_secret = config.shared_secret.encode() if config.shared_secret else b""
-        self._http_client: httpx.AsyncClient | None = None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=5.0)
-        return self._http_client
-
-    async def close(self) -> None:
-        if self._http_client and not self._http_client.is_closed:
-            await self._http_client.aclose()
-
-    # -- local HMAC validation ----------------------------------------------
-
-    def _validate_local(self, token: str) -> tuple[bool, str, str]:
-        """Validate token locally using HMAC-SHA256.  Returns ``(valid, agent_id, reason)``."""
-        if not self._shared_secret:
-            return False, "", "no_shared_secret"
-
-        parts = token.split(".")
-        if len(parts) != 3:
-            return False, "", "malformed_token"
-
-        agent_id, expiry_str, provided_mac = parts
-
-        try:
-            expiry = int(expiry_str)
-        except ValueError:
-            return False, agent_id, "invalid_expiry"
-
-        if time.time() > expiry:
-            return False, agent_id, "token_expired"
-
-        message = f"{agent_id}.{expiry_str}".encode()
-        expected_mac = hmac.new(self._shared_secret, message, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(provided_mac, expected_mac):
-            return False, agent_id, "invalid_signature"
-
-        return True, agent_id, "valid_local"
-
-    # -- remote validation --------------------------------------------------
-
-    async def _validate_remote(self, token: str) -> tuple[bool, str, str]:
-        """Validate token via the Gavel API.  Returns ``(valid, agent_id, reason)``."""
-        try:
-            client = await self._get_client()
-            resp = await client.post(
-                self._validation_url,
-                json={"token": token},
-                headers={"Content-Type": "application/json"},
-            )
-            if resp.status_code == 200:
-                body = resp.json()
-                return (
-                    body.get("valid", False),
-                    body.get("agent_id", ""),
-                    body.get("reason", "valid_remote"),
-                )
-            return False, "", f"registration_api_{resp.status_code}"
-        except httpx.ConnectError:
-            return False, "", "registration_api_unreachable"
-        except Exception as exc:
-            log.warning("Remote token validation error: %s", exc)
-            return False, "", f"remote_error:{type(exc).__name__}"
-
-    # -- public API ---------------------------------------------------------
-
-    async def validate(self, token: str | None) -> tuple[bool, str, str]:
-        """Validate a Gavel governance token.  Returns ``(valid, agent_id, reason)``."""
-        if not token:
-            return False, "", "missing_token"
-
-        if self._shared_secret:
-            valid, agent_id, reason = self._validate_local(token)
-            if valid:
-                return True, agent_id, reason
-            if reason in ("invalid_signature", "token_expired"):
-                return False, agent_id, reason
-
-        return await self._validate_remote(token)
-
 
 # ---------------------------------------------------------------------------
 # Helpers (module-private)
 # ---------------------------------------------------------------------------
+
 
 def _should_use_tls(host: str) -> bool:
     """Determine whether to use HTTPS for the upstream connection."""
@@ -433,6 +99,7 @@ def _extract_token_id(token: str | None) -> str:
 # ---------------------------------------------------------------------------
 # Proxy application factory
 # ---------------------------------------------------------------------------
+
 
 def create_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
     """Create and configure the Gavel enforcement proxy FastAPI application."""
@@ -640,6 +307,7 @@ def create_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
 # Docker socket proxy factory
 # ---------------------------------------------------------------------------
 
+
 def create_docker_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
     """Create a proxy for the Docker socket that enforces Gavel token checks.
 
@@ -802,15 +470,9 @@ def create_docker_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
 
 
 # ---------------------------------------------------------------------------
-# Module-level app instance (for ``uvicorn gavel.proxy:app``)
-# ---------------------------------------------------------------------------
-
-app: FastAPI = create_proxy_app()
-
-
-# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -915,7 +577,3 @@ def main() -> None:
     print(banner)
 
     asyncio.run(serve(args))
-
-
-if __name__ == "__main__":
-    main()
