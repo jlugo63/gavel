@@ -7,7 +7,7 @@
  * ES module — D3 v7 loaded globally via CDN.
  */
 
-import { GavelState } from './state.js';
+import { GavelState } from './state.js?v=5';
 import { computeLayout } from './graph-model.js';
 
 // ---------------------------------------------------------------------------

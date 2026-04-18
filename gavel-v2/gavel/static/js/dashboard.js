@@ -5,7 +5,7 @@
  * Governance Timeline, Incidents, Compliance, and Constitution tabs.
  */
 
-import { GavelState } from './state.js?v=2';
+import { GavelState } from './state.js?v=5';
 import { esc, statusDot, statusChip, tierChip, trustBar, timeAgo } from './utils.js';
 
 function renderAgentRoster(agents) {
@@ -22,7 +22,7 @@ function renderAgentRoster(agents) {
   }
 
   el.innerHTML = list.map(a => `
-    <div class="agent-card" style="padding:12px;margin:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;">
+    <div class="agent-card" data-agent-id="${esc(a.agent_id)}" style="padding:12px;margin:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <strong style="font-size:14px;">${statusDot(a.status)}${esc(a.display_name || a.agent_id)}</strong>
         <span class="chip chip-${(a.status || '').toLowerCase()}" style="font-size:11px;">${a.status}</span>
@@ -104,7 +104,7 @@ function renderChains(chains) {
     const actors = c.roster ? Object.keys(c.roster).join(', ') : '';
     const lastEvent = (c.timeline && c.timeline.length > 0) ? c.timeline[c.timeline.length - 1] : null;
     return `
-    <div style="padding:10px 12px;border-bottom:1px solid var(--border);">
+    <div class="chain-card" data-chain-id="${esc(c.chain_id)}" style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);">${esc(c.chain_id)}</span>
         ${statusChip(c.status)}
@@ -350,6 +350,123 @@ export function initDashboard() {
   fetchAndRenderIncidents();
   fetchAndRenderCompliance();
   fetchAndRenderConstitution();
+
+  // Wire agent card and chain card clicks to Inspector
+  document.addEventListener('click', (e) => {
+    const agentCard = e.target.closest('.agent-card[data-agent-id]');
+    if (agentCard) {
+      GavelState.setSelection('agent', agentCard.dataset.agentId);
+      return;
+    }
+    const chainCard = e.target.closest('.chain-card[data-chain-id]');
+    if (chainCard) {
+      GavelState.setSelection('chain', chainCard.dataset.chainId);
+      return;
+    }
+  });
+
+  // Wire kill switch buttons (event delegation for dynamically rendered buttons)
+  document.addEventListener('click', async (e) => {
+    const killBtn = e.target.closest('.kill-btn[data-agent]');
+    if (killBtn) {
+      const agentId = killBtn.dataset.agent;
+      if (!confirm(`Kill agent ${agentId}?`)) return;
+      try {
+        const res = await fetch(`/v1/agents/${encodeURIComponent(agentId)}/kill`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Manual kill switch' }),
+        });
+        if (!res.ok) throw new Error(`Kill failed: ${res.status}`);
+        await GavelState.fetchAgents();
+      } catch (err) {
+        console.error('[Dashboard] Kill failed:', err);
+        alert(`Kill failed: ${err.message}`);
+      }
+      return;
+    }
+
+    if (e.target.closest('#kill-all-btn')) {
+      if (!confirm('Kill ALL agents?')) return;
+      const agents = Object.keys(GavelState.agents);
+      for (const agentId of agents) {
+        try {
+          await fetch(`/v1/agents/${encodeURIComponent(agentId)}/kill`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Manual kill-all switch' }),
+          });
+        } catch (err) {
+          console.error(`[Dashboard] Kill ${agentId} failed:`, err);
+        }
+      }
+      await GavelState.fetchAgents();
+      return;
+    }
+  });
+
+  // Wire Create Incident button
+  const createIncBtn = document.getElementById('incident-create-btn');
+  if (createIncBtn) {
+    createIncBtn.addEventListener('click', () => {
+      const container = document.getElementById('incidents-container');
+      if (!container) return;
+      // Toggle form
+      const existing = document.getElementById('incident-form');
+      if (existing) { existing.remove(); return; }
+
+      const agents = Object.keys(GavelState.agents);
+      const agentOpts = agents.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+
+      const form = document.createElement('div');
+      form.id = 'incident-form';
+      form.style.cssText = 'padding:16px;margin-bottom:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;';
+      form.innerHTML = `
+        <div style="display:grid;gap:10px;">
+          <select id="inc-agent" style="padding:8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+            ${agentOpts}
+          </select>
+          <input id="inc-title" placeholder="Incident title" style="padding:8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+          <textarea id="inc-desc" placeholder="Description" rows="3" style="padding:8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;resize:vertical;"></textarea>
+          <select id="inc-severity" style="padding:8px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+            <option value="MINOR">MINOR</option>
+            <option value="STANDARD" selected>STANDARD</option>
+            <option value="SERIOUS">SERIOUS</option>
+            <option value="CRITICAL">CRITICAL</option>
+          </select>
+          <div style="display:flex;gap:8px;">
+            <button id="inc-submit" style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Submit</button>
+            <button id="inc-cancel" style="padding:8px 16px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;cursor:pointer;">Cancel</button>
+          </div>
+        </div>`;
+      container.insertBefore(form, container.firstChild);
+
+      document.getElementById('inc-cancel').addEventListener('click', () => form.remove());
+      document.getElementById('inc-submit').addEventListener('click', async () => {
+        const payload = {
+          agent_id: document.getElementById('inc-agent').value,
+          title: document.getElementById('inc-title').value,
+          description: document.getElementById('inc-desc').value,
+          severity: document.getElementById('inc-severity').value.toLowerCase(),
+          event_type: 'manual',
+        };
+        if (!payload.title.trim()) { alert('Title is required'); return; }
+        try {
+          const res = await fetch('/v1/incidents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) throw new Error(`POST /v1/incidents → ${res.status}`);
+          form.remove();
+          fetchAndRenderIncidents();
+        } catch (err) {
+          console.error('[Dashboard] Create incident failed:', err);
+          alert(`Failed: ${err.message}`);
+        }
+      });
+    });
+  }
 
   return {
     update(state) {

@@ -164,11 +164,27 @@ export const GavelState = {
       const res = await fetch('/v1/agents');
       if (!res.ok) throw new Error(`GET /v1/agents → ${res.status}`);
       const agents = await res.json();
-      // Replace the agents map entirely with fresh data
       GavelState.agents = {};
       for (const agent of agents) {
         GavelState.agents[agent.agent_id] = agent;
       }
+      // Merge enrollment data (owner, purpose, risk_tier)
+      try {
+        const eres = await fetch('/v1/agents/enrollments');
+        if (eres.ok) {
+          const enrollments = await eres.json();
+          for (const e of enrollments) {
+            if (GavelState.agents[e.agent_id]) {
+              Object.assign(GavelState.agents[e.agent_id], {
+                owner: e.owner,
+                enrollment_status: e.status,
+                purpose: e.purpose,
+                risk_tier: e.risk_tier,
+              });
+            }
+          }
+        }
+      } catch (_) { /* enrollment data is optional */ }
       GavelState.rebuildGraph();
     } catch (err) {
       console.error('[GavelState] fetchAgents failed:', err);

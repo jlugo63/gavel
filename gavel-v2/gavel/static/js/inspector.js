@@ -7,7 +7,7 @@
  * ES module — no build step, no external dependencies.
  */
 
-import { GavelState } from './state.js';
+import { GavelState } from './state.js?v=5';
 import { esc, timeAgo, fmtDate, hashPreview, statusColor, statusChipClass } from './utils.js';
 
 /** Autonomy tier label. */
