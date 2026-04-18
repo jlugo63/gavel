@@ -17,13 +17,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
 from gavel.chain import GovernanceChain, ChainStatus
-from gavel.evidence import ReviewResult, ReviewVerdict
+from gavel.evidence import ReviewResult
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -207,7 +206,6 @@ def from_chain(
     """
     status = chain.status.value
 
-    # Build principal list from chain actor roles
     seen: dict[str, str] = {}
     for event in chain.events:
         if event.actor_id not in seen:
@@ -217,7 +215,6 @@ def from_chain(
         for aid, role in seen.items()
     ]
 
-    # Build event list
     events = [
         ArtifactEvent(
             event_id=e.event_id,

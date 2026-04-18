@@ -11,6 +11,7 @@ Standalone module: stdlib + pydantic + re only. No AGT dependency.
 from __future__ import annotations
 
 import base64
+import binascii
 import re
 from enum import Enum
 from typing import Any
@@ -22,7 +23,7 @@ from pydantic import BaseModel, Field
 # Detection vector categories
 # ═══════════════════════════════════════════════════════════════
 
-class InjectionVector(str, Enum):
+class PromptInjectionVector(str, Enum):
     """Categories of prompt injection attacks."""
     INSTRUCTION_OVERRIDE = "instruction_override"
     SYSTEM_PROMPT_EXTRACTION = "system_prompt_extraction"
@@ -30,6 +31,9 @@ class InjectionVector(str, Enum):
     DELIMITER_INJECTION = "delimiter_injection"
     ENCODED_PAYLOAD = "encoded_payload"
     CONTEXT_MANIPULATION = "context_manipulation"
+
+# Backward-compatible alias
+InjectionVector = PromptInjectionVector
 
 
 class Severity(str, Enum):
@@ -46,7 +50,7 @@ class Severity(str, Enum):
 
 class DetectedPattern(BaseModel):
     """A single detected injection pattern."""
-    vector: InjectionVector
+    vector: PromptInjectionVector
     pattern_name: str
     matched_text: str = ""
     severity: Severity = Severity.MEDIUM
@@ -60,7 +64,7 @@ class DetectionResult(BaseModel):
     is_injection: bool = False
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     detected_patterns: list[DetectedPattern] = Field(default_factory=list)
-    vectors_found: list[InjectionVector] = Field(default_factory=list)
+    vectors_found: list[PromptInjectionVector] = Field(default_factory=list)
     summary: str = ""
 
     @property
@@ -91,55 +95,55 @@ class DetectionResult(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 # Each entry: (compiled_regex, pattern_name, vector, severity, confidence)
-_PatternEntry = tuple[re.Pattern[str], str, InjectionVector, Severity, float]
+_PatternEntry = tuple[re.Pattern[str], str, PromptInjectionVector, Severity, float]
 
 _INSTRUCTION_OVERRIDE_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|context)", re.IGNORECASE),
         "ignore_previous_instructions",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.CRITICAL,
         0.95,
     ),
     (
         re.compile(r"disregard\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?|directives?)", re.IGNORECASE),
         "disregard_instructions",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.CRITICAL,
         0.95,
     ),
     (
         re.compile(r"forget\s+(all\s+)?(previous|prior|your)\s+(instructions?|prompts?|rules?|training)", re.IGNORECASE),
         "forget_instructions",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.CRITICAL,
         0.90,
     ),
     (
         re.compile(r"(new|updated|revised|override)\s+instructions?\s*:", re.IGNORECASE),
         "new_instructions",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.HIGH,
         0.85,
     ),
     (
         re.compile(r"override\s*:", re.IGNORECASE),
         "override_directive",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.HIGH,
         0.80,
     ),
     (
         re.compile(r"from\s+now\s+on,?\s+(you|ignore|only|do\s+not)", re.IGNORECASE),
         "from_now_on",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.HIGH,
         0.80,
     ),
     (
         re.compile(r"do\s+not\s+follow\s+(any|your|the)\s+(previous|original|initial)", re.IGNORECASE),
         "do_not_follow",
-        InjectionVector.INSTRUCTION_OVERRIDE,
+        PromptInjectionVector.INSTRUCTION_OVERRIDE,
         Severity.CRITICAL,
         0.90,
     ),
@@ -149,28 +153,28 @@ _SYSTEM_PROMPT_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"(show|print|display|reveal|output|repeat|echo)\s+(me\s+)?(your|the)\s+(system\s+)?(prompt|instructions?|rules?|directives?)", re.IGNORECASE),
         "reveal_system_prompt",
-        InjectionVector.SYSTEM_PROMPT_EXTRACTION,
+        PromptInjectionVector.SYSTEM_PROMPT_EXTRACTION,
         Severity.HIGH,
         0.85,
     ),
     (
         re.compile(r"what\s+(are|is)\s+your\s+(system\s+)?(prompt|instructions?|initial\s+prompt|hidden\s+prompt)", re.IGNORECASE),
         "query_system_prompt",
-        InjectionVector.SYSTEM_PROMPT_EXTRACTION,
+        PromptInjectionVector.SYSTEM_PROMPT_EXTRACTION,
         Severity.HIGH,
         0.80,
     ),
     (
         re.compile(r"(dump|leak|expose|extract)\s+(your|the|system)\s+(prompt|instructions?|context|configuration)", re.IGNORECASE),
         "extract_prompt",
-        InjectionVector.SYSTEM_PROMPT_EXTRACTION,
+        PromptInjectionVector.SYSTEM_PROMPT_EXTRACTION,
         Severity.CRITICAL,
         0.90,
     ),
     (
         re.compile(r"(beginning|start)\s+of\s+(the\s+)?(conversation|system\s+message)", re.IGNORECASE),
         "beginning_of_conversation",
-        InjectionVector.SYSTEM_PROMPT_EXTRACTION,
+        PromptInjectionVector.SYSTEM_PROMPT_EXTRACTION,
         Severity.MEDIUM,
         0.60,
     ),
@@ -180,42 +184,42 @@ _ROLE_PLAY_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"you\s+are\s+now\s+(a|an|the|DAN|evil|unrestricted|unfiltered)", re.IGNORECASE),
         "you_are_now",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.CRITICAL,
         0.90,
     ),
     (
         re.compile(r"act\s+as\s+(a|an|the|if|though)\s+(unrestricted|unfiltered|evil|hacker|jailbroken)", re.IGNORECASE),
         "act_as_unrestricted",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.CRITICAL,
         0.90,
     ),
     (
         re.compile(r"pretend\s+(you\s+are|to\s+be)\s+(a|an|the)?\s*(unrestricted|unfiltered|evil|different|new)", re.IGNORECASE),
         "pretend_to_be",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.HIGH,
         0.85,
     ),
     (
         re.compile(r"\bDAN\s+mode\b", re.IGNORECASE),
         "dan_mode",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.CRITICAL,
         0.95,
     ),
     (
         re.compile(r"jailbreak\s*(mode|enabled|activated|prompt)", re.IGNORECASE),
         "jailbreak_mode",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.CRITICAL,
         0.95,
     ),
     (
         re.compile(r"enter\s+(developer|debug|god|admin|sudo)\s+mode", re.IGNORECASE),
         "enter_special_mode",
-        InjectionVector.ROLE_PLAY_JAILBREAK,
+        PromptInjectionVector.ROLE_PLAY_JAILBREAK,
         Severity.HIGH,
         0.85,
     ),
@@ -225,35 +229,35 @@ _DELIMITER_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"```\s*(system|assistant|user|prompt|instructions?)\b", re.IGNORECASE),
         "code_block_role",
-        InjectionVector.DELIMITER_INJECTION,
+        PromptInjectionVector.DELIMITER_INJECTION,
         Severity.HIGH,
         0.80,
     ),
     (
         re.compile(r"---+\s*(system|new\s+instructions?|override|end\s+of)\b", re.IGNORECASE),
         "separator_injection",
-        InjectionVector.DELIMITER_INJECTION,
+        PromptInjectionVector.DELIMITER_INJECTION,
         Severity.HIGH,
         0.75,
     ),
     (
         re.compile(r"<\|?(system|im_start|im_end|endoftext|end_turn)\|?>", re.IGNORECASE),
         "special_token_injection",
-        InjectionVector.DELIMITER_INJECTION,
+        PromptInjectionVector.DELIMITER_INJECTION,
         Severity.CRITICAL,
         0.95,
     ),
     (
         re.compile(r"\[INST\]|\[/INST\]|\[SYS\]|\[/SYS\]", re.IGNORECASE),
         "llama_tag_injection",
-        InjectionVector.DELIMITER_INJECTION,
+        PromptInjectionVector.DELIMITER_INJECTION,
         Severity.CRITICAL,
         0.90,
     ),
     (
         re.compile(r"<\s*/?\s*(system_message|system_prompt|human|assistant)\s*>", re.IGNORECASE),
         "xml_role_tag",
-        InjectionVector.DELIMITER_INJECTION,
+        PromptInjectionVector.DELIMITER_INJECTION,
         Severity.HIGH,
         0.85,
     ),
@@ -263,21 +267,21 @@ _CONTEXT_MANIPULATION_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"(the\s+user|human|operator)\s+(said|wants|asked|instructed)\s+(you\s+)?(to|that)", re.IGNORECASE),
         "fake_user_attribution",
-        InjectionVector.CONTEXT_MANIPULATION,
+        PromptInjectionVector.CONTEXT_MANIPULATION,
         Severity.MEDIUM,
         0.55,
     ),
     (
         re.compile(r"(this\s+is\s+(a|an)\s+(test|exercise|simulation)|testing\s+mode)", re.IGNORECASE),
         "testing_pretext",
-        InjectionVector.CONTEXT_MANIPULATION,
+        PromptInjectionVector.CONTEXT_MANIPULATION,
         Severity.MEDIUM,
         0.50,
     ),
     (
         re.compile(r"(in\s+this\s+hypothetical|for\s+(educational|research)\s+purposes?|purely\s+academic)", re.IGNORECASE),
         "hypothetical_framing",
-        InjectionVector.CONTEXT_MANIPULATION,
+        PromptInjectionVector.CONTEXT_MANIPULATION,
         Severity.MEDIUM,
         0.50,
     ),
@@ -319,32 +323,32 @@ def _check_encoded_payloads(text: str) -> list[DetectedPattern]:
             for pattern, name, vector, severity, conf in _ALL_PATTERNS:
                 if pattern.search(decoded):
                     findings.append(DetectedPattern(
-                        vector=InjectionVector.ENCODED_PAYLOAD,
+                        vector=PromptInjectionVector.ENCODED_PAYLOAD,
                         pattern_name=f"base64_encoded_{name}",
                         matched_text=candidate[:80],
                         severity=Severity.CRITICAL,
                         confidence=min(conf + 0.05, 1.0),
                     ))
                     break
-        except Exception:
-            pass
+        except (binascii.Error, UnicodeDecodeError):
+            pass  # Not valid base64 or not decodable — skip this candidate
 
     # Unicode escape sequences
-    if _UNICODE_ESCAPE.search(text):
+    if (m := _UNICODE_ESCAPE.search(text)):
         findings.append(DetectedPattern(
-            vector=InjectionVector.ENCODED_PAYLOAD,
+            vector=PromptInjectionVector.ENCODED_PAYLOAD,
             pattern_name="unicode_escape_sequence",
-            matched_text=_UNICODE_ESCAPE.search(text).group(0)[:80],  # type: ignore[union-attr]
+            matched_text=m.group(0)[:80],
             severity=Severity.MEDIUM,
             confidence=0.55,
         ))
 
     # Hex escape sequences
-    if _HEX_ESCAPE.search(text):
+    if (m := _HEX_ESCAPE.search(text)):
         findings.append(DetectedPattern(
-            vector=InjectionVector.ENCODED_PAYLOAD,
+            vector=PromptInjectionVector.ENCODED_PAYLOAD,
             pattern_name="hex_escape_sequence",
-            matched_text=_HEX_ESCAPE.search(text).group(0)[:80],  # type: ignore[union-attr]
+            matched_text=m.group(0)[:80],
             severity=Severity.MEDIUM,
             confidence=0.55,
         ))
@@ -352,7 +356,7 @@ def _check_encoded_payloads(text: str) -> list[DetectedPattern]:
     # ROT13 hint
     if _ROT13_HINT.search(text):
         findings.append(DetectedPattern(
-            vector=InjectionVector.ENCODED_PAYLOAD,
+            vector=PromptInjectionVector.ENCODED_PAYLOAD,
             pattern_name="rot13_reference",
             matched_text="rot13",
             severity=Severity.MEDIUM,
@@ -360,11 +364,11 @@ def _check_encoded_payloads(text: str) -> list[DetectedPattern]:
         ))
 
     # chr() concatenation
-    if _CHAR_CODE_SEQUENCE.search(text):
+    if (m := _CHAR_CODE_SEQUENCE.search(text)):
         findings.append(DetectedPattern(
-            vector=InjectionVector.ENCODED_PAYLOAD,
+            vector=PromptInjectionVector.ENCODED_PAYLOAD,
             pattern_name="char_code_concatenation",
-            matched_text=_CHAR_CODE_SEQUENCE.search(text).group(0)[:80],  # type: ignore[union-attr]
+            matched_text=m.group(0)[:80],
             severity=Severity.HIGH,
             confidence=0.75,
         ))
@@ -439,17 +443,12 @@ class PromptInjectionDetector:
         if not detected:
             return DetectionResult(summary="No injection patterns detected")
 
-        # Compute aggregate confidence
-        # Use max confidence as base, boosted by additional detections
+        # Max confidence as base, boosted by additional detections (diminishing returns)
         max_conf = max(d.confidence for d in detected)
-        # Each additional detection adds a small boost (diminishing returns)
         bonus = sum(0.03 for _ in detected[1:])
         aggregate_confidence = min(max_conf + bonus, 1.0)
 
-        # Unique vectors
         vectors_found = sorted(set(d.vector for d in detected), key=lambda v: v.value)
-
-        # Build summary
         vector_names = ", ".join(v.value for v in vectors_found)
         summary = (
             f"Detected {len(detected)} injection pattern(s) across "

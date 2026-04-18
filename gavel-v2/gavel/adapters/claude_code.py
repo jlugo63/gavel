@@ -458,7 +458,6 @@ class ClaudeCodeHook:
 
         # -- Scope validation -----------------------------------------------
         if not is_admin:
-            # Check allowed actions from enrollment boundaries
             allowed = enrollment.get("boundaries", {}).get(
                 "allowed_actions", [],
             )
@@ -484,7 +483,6 @@ class ClaudeCodeHook:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
 
-            # Check max risk threshold from enrollment boundaries
             max_risk = enrollment.get("boundaries", {}).get(
                 "max_risk_threshold", 0.7,
             )

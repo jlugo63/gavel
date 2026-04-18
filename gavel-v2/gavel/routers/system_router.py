@@ -15,7 +15,7 @@ from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 
 from gavel.agents import AgentRegistry, AgentStatus
-from gavel.chain import GovernanceChain, ChainStatus, EventType
+from gavel.chain import ChainStatus, EventType
 from gavel.dependencies import (
     ChainLockManager,
     get_agent_registry,
@@ -69,13 +69,9 @@ async def event_stream(
 @system_router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page():
     """Serve the agent monitoring dashboard."""
-    # Prefer the new static/ layout; fall back to legacy single-file dashboard
     static_path = Path(__file__).parent.parent / "static" / "dashboard.html"
     if static_path.exists():
         return HTMLResponse(static_path.read_text(encoding="utf-8"))
-    legacy_path = Path(__file__).parent.parent / "dashboard.html"
-    if legacy_path.exists():
-        return HTMLResponse(legacy_path.read_text(encoding="utf-8"))
     raise HTTPException(status_code=404, detail="Dashboard not available")
 
 

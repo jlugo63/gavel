@@ -1,4 +1,4 @@
-"""Async Redis client factory for Gavel Phase 11 coordination.
+"""Async Redis client factory for Gavel coordination services.
 
 Activated by ``GAVEL_REDIS_URL``. When unset, :func:`get_redis` returns
 ``None`` and downstream subsystems fall back to their InProcess impls.

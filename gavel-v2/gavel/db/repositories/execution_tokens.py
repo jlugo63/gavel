@@ -13,8 +13,8 @@ Current in-memory shape (``get_execution_tokens()`` returns a
 Locked Wave 2A decisions:
 
 * ``get()`` returns a **snapshot dict** — a fresh, read-only copy of
-  the row's fields in the legacy shape. Callers cannot mutate a live
-  record in place; mutations go through dedicated methods.
+  the row's fields. Callers cannot mutate a live record in place;
+  mutations go through dedicated methods.
 * ``mark_used()`` is a TOCTOU-safe atomic flip that returns ``False``
   when the token is already used. Implemented as a conditional
   ``UPDATE ... WHERE used = false`` that returns the affected row
@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gavel.db.models import ExecutionTokenRow
@@ -40,8 +40,8 @@ class ExecutionTokenRepository:
     """Async repository for execution tokens.
 
     Storage rows are typed (``DateTime(tz=True)`` for ``expires_at``)
-    but the external snapshot dict keeps the legacy ISO-string shape
-    so call sites don't need to change until Wave 3.
+    but the external snapshot dict uses ISO-string format for
+    ``expires_at`` to match the rest of the API surface.
     """
 
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]):
@@ -58,8 +58,8 @@ class ExecutionTokenRepository:
     async def save(self, token_id: str, token: dict) -> None:
         """Full upsert — used at token creation time.
 
-        ``token`` follows the legacy in-memory shape; ``expires_at`` may
-        be an ISO string or a ``datetime``. Stored as typed DateTime.
+        ``token`` is a dict whose ``expires_at`` may be an ISO string
+        or a ``datetime``. Stored as typed DateTime.
         """
         expires_at = _coerce_datetime(token.get("expires_at"))
         chain_id = token.get("chain_id", "")
@@ -125,10 +125,10 @@ class ExecutionTokenRepository:
 
 
 def _row_to_snapshot(row: ExecutionTokenRow) -> dict:
-    """Produce the legacy dict shape from a row.
+    """Produce a snapshot dict from a row.
 
-    ``expires_at`` becomes an ISO string (UTC-aware) because that is
-    what the existing in-memory code paths produce and consume.
+    ``expires_at`` becomes an ISO string (UTC-aware) to match the API
+    surface used by all callers.
     """
     expires = row.expires_at
     if expires is not None and expires.tzinfo is None:

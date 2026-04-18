@@ -4,14 +4,14 @@ Event Bus — the central nervous system of the monitoring dashboard.
 All governance actions, agent heartbeats, and status changes publish
 events here. The SSE endpoint drains events to all connected dashboards.
 
-Phase 11 adds a Redis-backed implementation for cross-replica fan-out.
-When ``GAVEL_REDIS_URL`` is set, :func:`create_event_bus` returns a
-:class:`RedisEventBus` that uses Redis pub/sub. Otherwise it returns the
-original :class:`InProcessEventBus` (renamed from ``EventBus``).
+Three implementations:
 
-Phase 14 adds :class:`PersistentEventBus` which uses Redis Streams for
-durable, ordered, replayable event delivery.  Activated by setting
-``GAVEL_EVENT_PERSISTENCE=1`` alongside ``GAVEL_REDIS_URL``.
+- :class:`InProcessEventBus` — single-process, no external dependencies.
+- :class:`RedisEventBus` — Redis pub/sub for cross-replica fan-out.
+  Activated when ``GAVEL_REDIS_URL`` is set.
+- :class:`PersistentEventBus` — Redis Streams for durable, ordered,
+  replayable event delivery.  Activated by setting
+  ``GAVEL_EVENT_PERSISTENCE=1`` alongside ``GAVEL_REDIS_URL``.
 """
 
 from __future__ import annotations
@@ -20,9 +20,13 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis as AsyncRedis
+    from redis.asyncio.client import PubSub
 
 from pydantic import BaseModel, Field
 
@@ -140,12 +144,12 @@ class RedisEventBus:
     like :class:`InProcessEventBus` does locally.
     """
 
-    def __init__(self, redis_client: Any) -> None:
+    def __init__(self, redis_client: AsyncRedis) -> None:
         self._redis = redis_client
         self._subscribers: list[asyncio.Queue[DashboardEvent]] = []
         self._lock: asyncio.Lock = asyncio.Lock()
         self._listener_task: asyncio.Task | None = None
-        self._pubsub: Any | None = None
+        self._pubsub: PubSub | None = None
         self._running: bool = False
 
     async def publish(self, event: DashboardEvent) -> None:
@@ -283,7 +287,7 @@ class PersistentEventBus:
 
     def __init__(
         self,
-        redis_client: Any,
+        redis_client: AsyncRedis,
         retention: EventRetentionPolicy | None = None,
     ) -> None:
         self._redis = redis_client
@@ -513,8 +517,8 @@ class PersistentEventBus:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compatible alias — conftest.py and many modules import ``EventBus``
-# and construct it directly.
+# Convenience alias — most modules import ``EventBus`` as the default
+# in-process implementation.
 # ---------------------------------------------------------------------------
 
 EventBus = InProcessEventBus

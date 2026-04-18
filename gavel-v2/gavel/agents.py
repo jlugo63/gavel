@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
 from gavel.agt_compat import AgentMeshClient
@@ -30,6 +30,12 @@ from gavel.tiers import AutonomyTier
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gavel.db.repositories import AgentRepository
+
+
+class TrustOutcome(TypedDict):
+    trust_score: int
+    autonomy_tier: int
+    promoted: bool
 
 
 class AgentStatus(str, Enum):
@@ -170,7 +176,6 @@ class AgentRegistry:
 
         if success:
             record.chains_completed += 1
-            # Update trust score from AGT
             client = self._mesh_clients.get(agent_id)
             if client:
                 record.trust_score = client.trust_score.total_score
@@ -214,7 +219,7 @@ class AgentRegistry:
 
     async def update_trust_from_outcome(
         self, agent_id: str, tool_name: str, success: bool
-    ) -> Optional[dict]:
+    ) -> TrustOutcome | None:
         """Update agent trust based on a single tool-call outcome.
 
         Returns a summary dict or None if agent not found.

@@ -165,7 +165,6 @@ class ExplainabilityRenderer:
                 "a liveness or escalation failure"
             )
 
-        # Check for denied events
         denied = chain.get_event(EventType.APPROVAL_DENIED) or chain.get_event(EventType.AUTO_DENIED)
         if denied:
             denial_reason = denied.payload.get("reason", "No reason recorded")
@@ -314,7 +313,6 @@ class ExplainabilityRenderer:
                 f"{'exceeded the acceptable threshold' if risk_score > 0.5 else 'was within normal range but other factors led to denial'}"
             )
 
-        # Extract any additional payload context
         violations = payload.get("violations", [])
         if violations:
             for v in violations[:5]:

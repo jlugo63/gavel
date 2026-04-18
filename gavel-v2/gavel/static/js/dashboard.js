@@ -6,39 +6,13 @@
  */
 
 import { GavelState } from './state.js?v=2';
-
-function esc(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function statusDot(status) {
-  const colors = {
-    ACTIVE: 'var(--green)', IDLE: 'var(--text3)',
-    SUSPENDED: 'var(--amber)', DEAD: 'var(--red)',
-  };
-  return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${colors[status] || 'var(--text3)'};margin-right:6px;"></span>`;
-}
-
-function tierChip(tier) {
-  const names = ['SUPERVISED', 'SEMI-AUTO', 'AUTONOMOUS', 'CRITICAL'];
-  return `<span class="chip">${names[tier] || 'T' + tier}</span>`;
-}
-
-function trustBar(score) {
-  const pct = Math.round((score / 1000) * 100);
-  return `<span style="display:inline-block;width:80px;height:8px;background:var(--border);border-radius:4px;overflow:hidden;vertical-align:middle;">
-    <span style="display:block;width:${pct}%;height:100%;background:var(--accent);border-radius:4px;"></span>
-  </span> <span style="font-size:12px;color:var(--text2);font-family:'JetBrains Mono',monospace;margin-left:4px;">${score}</span>`;
-}
+import { esc, statusDot, statusChip, tierChip, trustBar, timeAgo } from './utils.js';
 
 function renderAgentRoster(agents) {
-  // Operations tab — agent cards in the roster panel
   const el = document.getElementById('agents-panel');
   if (!el) return;
   const list = Object.values(agents);
 
-  // Update the badge count
   const badge = document.getElementById('agent-count');
   if (badge) badge.textContent = list.length;
 
@@ -72,7 +46,6 @@ function renderTopBarStats(agents) {
 }
 
 function renderAgentsTable(agents) {
-  // Agents & Enrollment tab — full table
   const el = document.getElementById('agents-tab-tbody');
   if (!el) return;
   const list = Object.values(agents);
@@ -114,18 +87,6 @@ function renderKillSwitch(agents) {
     </div>`;
 }
 
-function statusChip(status) {
-  const cls = (status || '').toLowerCase();
-  return `<span class="chip chip-${cls}" style="font-size:10px;">${esc(status)}</span>`;
-}
-
-function timeAgo(isoStr) {
-  if (!isoStr) return '';
-  const diff = Date.now() - new Date(isoStr).getTime();
-  if (diff < 60000) return `${Math.round(diff / 1000)}s ago`;
-  if (diff < 3600000) return `${Math.round(diff / 60000)}m ago`;
-  return `${Math.round(diff / 3600000)}h ago`;
-}
 
 function renderChains(chains) {
   const el = document.getElementById('chains-panel');

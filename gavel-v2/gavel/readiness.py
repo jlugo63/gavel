@@ -2,7 +2,7 @@
 Pre-deployment Readiness Checks — validate before you ship.
 
 Before an agent transitions from enrolled to deployed, this module runs
-a comprehensive checklist ensuring:
+a checklist ensuring:
 
   1. Enrollment is complete and current (not expired, not suspended)
   2. Budget limits are set and not yet exhausted
@@ -22,9 +22,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
+
+from gavel.baseline import BehavioralBaseline
+from gavel.fria import FriaAssessment
+from gavel.models.enrollment import EnrollmentRecord, GovernanceToken
+from gavel.tenancy import OrgTenantContext, OrgTenantRegistry
+from gavel.tiers import TierPolicy
 
 
 class CheckStatus(str, Enum):
@@ -79,14 +85,14 @@ class ReadinessChecker:
         self,
         agent_id: str,
         *,
-        enrollment_record: Any = None,
-        token: Any = None,
-        tier_policy: Any = None,
-        baseline: Any = None,
-        annex_iv: Any = None,
-        fria: Any = None,
-        tenant_context: Any = None,
-        tenant_registry: Any = None,
+        enrollment_record: EnrollmentRecord | None = None,
+        token: GovernanceToken | None = None,
+        tier_policy: TierPolicy | None = None,
+        baseline: BehavioralBaseline | None = None,
+        annex_iv: dict[str, str | dict[str, str]] | None = None,
+        fria: FriaAssessment | None = None,
+        tenant_context: OrgTenantContext | None = None,
+        tenant_registry: OrgTenantRegistry | None = None,
     ) -> ReadinessReport:
         report = ReadinessReport(agent_id=agent_id)
         report.checks.append(self._check_enrollment(agent_id, enrollment_record))
@@ -100,7 +106,7 @@ class ReadinessChecker:
         report.compute_overall()
         return report
 
-    def _check_enrollment(self, agent_id: str, record: Any) -> ReadinessCheck:
+    def _check_enrollment(self, agent_id: str, record: EnrollmentRecord | None) -> ReadinessCheck:
         if record is None:
             return ReadinessCheck(
                 check_id="enrollment", name="Enrollment Status",
@@ -129,7 +135,7 @@ class ReadinessChecker:
             details={"status": status_val},
         )
 
-    def _check_budget(self, agent_id: str, record: Any) -> ReadinessCheck:
+    def _check_budget(self, agent_id: str, record: EnrollmentRecord | None) -> ReadinessCheck:
         if record is None:
             return ReadinessCheck(
                 check_id="budget", name="Budget Limits",
@@ -152,7 +158,7 @@ class ReadinessChecker:
             required=True,
         )
 
-    def _check_owner(self, agent_id: str, record: Any) -> ReadinessCheck:
+    def _check_owner(self, agent_id: str, record: EnrollmentRecord | None) -> ReadinessCheck:
         if record is None:
             return ReadinessCheck(
                 check_id="owner", name="Accountable Owner",
@@ -182,7 +188,7 @@ class ReadinessChecker:
             required=True,
         )
 
-    def _check_token(self, agent_id: str, token: Any) -> ReadinessCheck:
+    def _check_token(self, agent_id: str, token: GovernanceToken | None) -> ReadinessCheck:
         if token is None:
             return ReadinessCheck(
                 check_id="token", name="Governance Token",
@@ -210,7 +216,7 @@ class ReadinessChecker:
             details={"token_prefix": str(getattr(token, "token", ""))[:16] + "..."},
         )
 
-    def _check_compliance_artifacts(self, agent_id: str, record: Any, annex_iv: Any, fria: Any) -> ReadinessCheck:
+    def _check_compliance_artifacts(self, agent_id: str, record: EnrollmentRecord | None, annex_iv: dict[str, str | dict[str, str]] | None, fria: FriaAssessment | None) -> ReadinessCheck:
         if record is None:
             return ReadinessCheck(
                 check_id="compliance", name="Compliance Artifacts",
@@ -249,7 +255,7 @@ class ReadinessChecker:
             details={"high_risk_category": hr_val},
         )
 
-    def _check_baseline(self, agent_id: str, record: Any, baseline: Any) -> ReadinessCheck:
+    def _check_baseline(self, agent_id: str, record: EnrollmentRecord | None, baseline: BehavioralBaseline | None) -> ReadinessCheck:
         if record is None:
             return ReadinessCheck(
                 check_id="baseline", name="Behavioral Baseline",
@@ -284,7 +290,7 @@ class ReadinessChecker:
             required=True,
         )
 
-    def _check_tier_policy(self, agent_id: str, record: Any, tier_policy: Any) -> ReadinessCheck:
+    def _check_tier_policy(self, agent_id: str, record: EnrollmentRecord | None, tier_policy: TierPolicy | None) -> ReadinessCheck:
         if tier_policy is None:
             return ReadinessCheck(
                 check_id="tier_policy", name="Tier Policy",
@@ -304,7 +310,7 @@ class ReadinessChecker:
             details={"tier_policy": str(type(tier_policy).__name__)},
         )
 
-    def _check_tenant(self, agent_id: str, tenant_context: Any, tenant_registry: Any) -> ReadinessCheck:
+    def _check_tenant(self, agent_id: str, tenant_context: OrgTenantContext | None, tenant_registry: OrgTenantRegistry | None) -> ReadinessCheck:
         if tenant_context is None:
             return ReadinessCheck(
                 check_id="tenant", name="Tenant Context",

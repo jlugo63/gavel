@@ -79,26 +79,17 @@ class SeparationOfPowers:
         """
         chain_roles = self._assignments.setdefault(chain_id, {})
 
-        # Check if actor already has a role on this chain
         existing_role = chain_roles.get(actor_id)
         if existing_role is not None:
-            # Same role is fine (e.g., observer reading twice)
             if existing_role == role:
                 return RoleAssignment(actor_id=actor_id, role=role, chain_id=chain_id)
-            # Different role -> check exclusion matrix
             # Article III.2: role is fixed at first participation
             raise SeparationViolation(actor_id, role, existing_role, chain_id)
 
-        # Check if this role is excluded by any existing actor's role
         excluded_roles = ROLE_EXCLUSIONS.get(role, set())
         for existing_actor, existing_actor_role in chain_roles.items():
             if existing_actor == actor_id and existing_actor_role in excluded_roles:
                 raise SeparationViolation(actor_id, role, existing_actor_role, chain_id)
-
-        # Check reverse: would this actor's new role exclude them from
-        # a role they'd need? (They can only have one role, so check
-        # if any existing assignment of THIS actor conflicts.)
-        # Already handled above — actor can only have one role per chain.
 
         chain_roles[actor_id] = role
         return RoleAssignment(actor_id=actor_id, role=role, chain_id=chain_id)
@@ -111,12 +102,10 @@ class SeparationOfPowers:
         violations = []
         chain_roles = self._assignments.get(chain_id, {})
 
-        # Build role -> actors mapping
         role_actors: dict[ChainRole, list[str]] = {}
         for actor_id, role in chain_roles.items():
             role_actors.setdefault(role, []).append(actor_id)
 
-        # Check exclusions
         for role, excluded in ROLE_EXCLUSIONS.items():
             actors_in_role = set(role_actors.get(role, []))
             for excl_role in excluded:

@@ -41,6 +41,15 @@ class ComplianceExporter:
         bundle.finalize()
         return bundle
 
+    # Frameworks that have export builders.  ATF and COMBINED are used by
+    # the SIEM scoring module and don't have compliance-export builders.
+    EXPORTABLE_FRAMEWORKS = frozenset({
+        ComplianceFramework.SOC2,
+        ComplianceFramework.ISO_42001,
+        ComplianceFramework.EU_AI_ACT,
+    })
+
     def export_all(self) -> list[ComplianceBundle]:
-        """Generate compliance bundles for all supported frameworks."""
-        return [self.export(fw) for fw in ComplianceFramework]
+        """Generate compliance bundles for all exportable frameworks."""
+        return [self.export(fw) for fw in ComplianceFramework
+                if fw in self.EXPORTABLE_FRAMEWORKS]

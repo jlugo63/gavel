@@ -1,5 +1,5 @@
 """
-Multi-tenant isolation — Phase 8.
+Multi-tenant isolation.
 
 Gavel is a single-process control plane. When a deployer uses it for
 multiple teams / orgs at once ("tenants"), governance data from tenant
@@ -175,7 +175,6 @@ class PartitionedStore(Generic[T]):
             raise TenantIsolationError(
                 f"{ctx.operator_id} may not write into tenant {tenant_id}"
             )
-        # Validate that the tenant exists and is active.
         tenant = self._registry.get(tenant_id)
         if tenant.status != TenantStatus.ACTIVE:
             raise TenantIsolationError(

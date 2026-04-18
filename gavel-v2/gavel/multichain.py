@@ -10,12 +10,10 @@ when all required chains reach a terminal state.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
-
-from pydantic import BaseModel, Field
 
 from gavel.chain import ChainStatus, EventType, GovernanceChain
 
@@ -135,7 +133,7 @@ class MultiChainWorkflow:
 
         counts = self._count_by_status()
 
-        # Check required chains for denial
+        # A required chain's denial fails the entire workflow
         for slot in self.slots:
             if slot.required and slot.chain.status in (
                 ChainStatus.DENIED, ChainStatus.ROLLED_BACK

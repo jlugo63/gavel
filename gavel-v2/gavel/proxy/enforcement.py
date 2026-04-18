@@ -24,9 +24,12 @@ log = logging.getLogger("gavel.proxy")
 # ---------------------------------------------------------------------------
 
 
-class EnforcementAction(str, Enum):
+class ProxyEnforcementAction(str, Enum):
     ALLOWED = "ALLOWED"
     BLOCKED = "BLOCKED"
+
+# Backward-compatible alias
+EnforcementAction = ProxyEnforcementAction
 
 
 class LedgerEntry(BaseModel):
@@ -39,7 +42,7 @@ class LedgerEntry(BaseModel):
     destination_domain: str = ""
     method: str = ""
     path: str = ""
-    action: EnforcementAction = EnforcementAction.BLOCKED
+    action: ProxyEnforcementAction = ProxyEnforcementAction.BLOCKED
     reason: str = ""
     token_id: str = ""
     prev_hash: str = ""
@@ -85,7 +88,7 @@ class EnforcementLedger:
                 if last_line:
                     data = json.loads(last_line)
                     self._last_hash = data.get("entry_hash", "genesis")
-        except Exception:
+        except (OSError, json.JSONDecodeError, KeyError):
             log.warning("Could not restore ledger chain tip; starting fresh chain.")
 
     async def append(self, entry: LedgerEntry) -> LedgerEntry:
@@ -138,6 +141,6 @@ class EnforcementLedger:
                             f"(expected {prev_hash[:16]}..., got {entry.prev_hash[:16]}...)"
                         )
                     prev_hash = entry.entry_hash
-                except Exception as exc:
+                except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
                     errors.append(f"Line {lineno}: parse error -- {exc}")
         return len(errors) == 0, count, errors

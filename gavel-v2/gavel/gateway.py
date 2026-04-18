@@ -30,10 +30,8 @@ from gavel.supervisor import Supervisor
 
 from gavel.dependencies import (
     get_agent_os,
-    get_agent_registry,
     get_chain_lock_manager,
     get_chain_repo,
-    get_enrollment_registry,
     get_event_bus,
     get_evidence_repo,
     get_execution_token_repo,

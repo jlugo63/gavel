@@ -18,7 +18,6 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 
 @dataclass
@@ -174,16 +173,13 @@ class BlastBox:
         """
         violations = []
 
-        # Check files modified are within allow_paths
         for f in packet.files_modified + packet.files_created:
             if not any(f.startswith(p) for p in declared_scope.allow_paths):
                 violations.append(f"File '{f}' outside declared allow_paths")
 
-        # Check network was disabled if not allowed
         if not declared_scope.allow_network and packet.network_mode != "none":
             violations.append("Network access detected but not declared in scope")
 
-        # Check no files were deleted outside scope
         for f in packet.files_deleted:
             if not any(f.startswith(p) for p in declared_scope.allow_paths):
                 violations.append(f"Deleted file '{f}' outside declared allow_paths")

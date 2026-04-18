@@ -21,14 +21,10 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from gavel.compliance import ComplianceStatus
+
 
 # ── Machine Inventory ────────────────────────────────────────
-
-class ComplianceStatus(str, Enum):
-    COMPLIANT = "compliant"
-    NON_COMPLIANT = "non_compliant"
-    PARTIAL = "partial"
-    UNKNOWN = "unknown"
 
 
 class MachineInventoryRecord(BaseModel):

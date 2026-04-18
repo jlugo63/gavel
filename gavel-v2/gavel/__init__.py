@@ -92,6 +92,7 @@ from gavel.observability import (
     metrics_router,
     registry as metrics_registry,
 )
+from gavel.types import Severity
 from gavel.fairness import (
     FairnessMonitor,
     FairnessMetric,
@@ -204,6 +205,8 @@ __all__ = [
     "PersistentEventBus",
     "RedisEventBus",
     "create_event_bus",
+    # Shared types
+    "Severity",
     # Fairness
     "FairnessMonitor",
     "FairnessMetric",

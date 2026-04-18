@@ -13,9 +13,15 @@ from pydantic import BaseModel, Field
 
 
 class ComplianceFramework(str, Enum):
+    """Compliance frameworks tracked by Gavel.
+
+    Used by both the compliance export system and SIEM compliance scoring.
+    """
     SOC2 = "soc2"
     ISO_42001 = "iso_42001"
     EU_AI_ACT = "eu_ai_act"
+    ATF = "atf"                    # Agentic Trust Framework
+    COMBINED = "combined"          # SIEM: weighted ATF + EU AI Act aggregate
 
 
 class ControlStatus(str, Enum):

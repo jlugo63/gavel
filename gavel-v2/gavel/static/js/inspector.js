@@ -8,76 +8,7 @@
  */
 
 import { GavelState } from './state.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Escape HTML entities to prevent XSS. */
-function esc(str) {
-  if (str == null) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/** Format an ISO timestamp as a relative "time ago" string. */
-function timeAgo(iso) {
-  if (!iso) return 'unknown';
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  if (isNaN(then)) return 'unknown';
-  const diff = Math.max(0, now - then);
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-/** Format an ISO timestamp as absolute date string. */
-function fmtDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return d.toISOString().replace('T', ' ').slice(0, 19);
-}
-
-/** Truncate a hash to first 12 chars. */
-function hashPreview(h) {
-  if (!h) return '';
-  return String(h).slice(0, 12);
-}
-
-/** Map agent/chain status to a CSS color variable name. */
-function statusColor(status) {
-  const s = (status || '').toUpperCase();
-  if (s === 'ACTIVE') return 'var(--green)';
-  if (s === 'IDLE') return 'var(--amber)';
-  if (s === 'SUSPENDED') return 'var(--red)';
-  if (s === 'DEAD') return 'var(--text3)';
-  if (s === 'APPROVED' || s === 'COMPLETED') return 'var(--green)';
-  if (s === 'ESCALATED' || s === 'PENDING') return 'var(--amber)';
-  if (s === 'DENIED') return 'var(--red)';
-  if (s === 'TIMED_OUT') return 'var(--text3)';
-  return 'var(--text2)';
-}
-
-/** Return chip CSS class for chain status. */
-function statusChipClass(status) {
-  const s = (status || '').toUpperCase();
-  if (s === 'APPROVED' || s === 'COMPLETED') return 'chip-green';
-  if (s === 'ESCALATED' || s === 'PENDING') return 'chip-amber';
-  if (s === 'DENIED') return 'chip-red';
-  if (s === 'TIMED_OUT') return 'chip-accent';
-  return 'chip-accent';
-}
+import { esc, timeAgo, fmtDate, hashPreview, statusColor, statusChipClass } from './utils.js';
 
 /** Autonomy tier label. */
 function tierLabel(tier) {

@@ -9,7 +9,7 @@ by the type-checker.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -24,7 +24,7 @@ class PolicyEngineProtocol(Protocol):
     custom_rules: list[Any]
 
     def add_custom_rule(self, rule: Any) -> None: ...
-    def validate_request(self, request: Any) -> Tuple[bool, str]: ...
+    def validate_request(self, request: Any) -> tuple[bool, str]: ...
 
 
 @runtime_checkable
@@ -52,14 +52,14 @@ class KernelSpaceProtocol(Protocol):
 class MCPSecurityScannerProtocol(Protocol):
     """Structural type for agent_os.MCPSecurityScanner."""
 
-    def scan(self, tool_definition: Any) -> Tuple[bool, str]: ...
+    def scan(self, tool_definition: Any) -> tuple[bool, str]: ...
 
 
 @runtime_checkable
 class PromptInjectionDetectorProtocol(Protocol):
     """Structural type for agent_os.PromptInjectionDetector."""
 
-    def detect(self, text: str) -> Tuple[bool, float]: ...
+    def detect(self, text: str) -> tuple[bool, float]: ...
     def scan(self, text: str) -> Any: ...
     def scan_fields(self, fields: dict[str, Any]) -> Any: ...
 
@@ -256,8 +256,8 @@ class AgentRiskProfileProtocol(Protocol):
 
     agent_id: str
     agent_type: str
-    capabilities: List[str]
-    data_categories: List[str]
+    capabilities: list[str]
+    data_categories: list[str]
     deployment_context: str
     intended_purpose: str
 
@@ -267,7 +267,7 @@ class ClassificationResultProtocol(Protocol):
     """Structural type for agent_compliance.ClassificationResult."""
 
     risk_level: Any
-    article_references: List[str]
+    article_references: list[str]
     reasoning: str
     classified_at: Any
 
@@ -278,7 +278,7 @@ class AnnexIVDocumentProtocol(Protocol):
 
     document_id: str
     agent_id: str
-    sections: Dict[str, Any]
+    sections: dict[str, Any]
     generated_at: Any
     version: str
 
@@ -294,4 +294,4 @@ class EUAIActRiskClassifierProtocol(Protocol):
 class TechnicalDocumentationExporterProtocol(Protocol):
     """Structural type for agent_compliance.TechnicalDocumentationExporter."""
 
-    def export(self, agent_id: str, context: Optional[Dict[str, Any]] = None) -> Any: ...
+    def export(self, agent_id: str, context: Optional[dict[str, Any]] = None) -> Any: ...

@@ -8,7 +8,7 @@
  * ES module — no build step, no external dependencies.
  */
 
-import { buildGraphModel, computeLayout } from './graph-model.js';
+import { buildGraphModel } from './graph-model.js';
 
 // ---------------------------------------------------------------------------
 // Subscriber registry

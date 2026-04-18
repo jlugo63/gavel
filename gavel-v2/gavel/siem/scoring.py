@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
-from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, Field
 
-
-class ComplianceFramework(str, Enum):
-    ATF = "atf"                  # Agentic Trust Framework
-    EU_AI_ACT = "eu_ai_act"
-    COMBINED = "combined"
+from gavel.compliance_exports.types import ComplianceFramework
 
 
 class ComplianceCheckResult(BaseModel):

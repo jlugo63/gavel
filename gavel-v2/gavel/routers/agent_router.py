@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from gavel.agents import AgentRegistry, AgentStatus
-from gavel.chain import GovernanceChain, ChainStatus, EventType
+from gavel.chain import EventType
 from gavel.dependencies import (
     ChainLockManager,
     get_agent_registry,

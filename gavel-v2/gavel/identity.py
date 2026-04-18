@@ -51,7 +51,7 @@ class IdentityResponse(BaseModel):
     signature: str  # hex-encoded Ed25519 signature over challenge_id + nonce
 
 
-class VerificationResult(BaseModel):
+class IdentityVerificationResult(BaseModel):
     """The outcome of verifying an identity response."""
 
     verified: bool
@@ -61,6 +61,9 @@ class VerificationResult(BaseModel):
     verified_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+# Backward-compatible alias
+VerificationResult = IdentityVerificationResult
 
 
 # ── Identity Registry ────────────────────────────────────────

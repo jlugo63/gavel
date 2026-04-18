@@ -6,16 +6,14 @@ managing incidents per Article 73, and monitoring overall compliance.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from gavel.compliance import (
     AnnexIVGenerator,
-    ComplianceStatus,
-    IncidentClassifier,
     IncidentRegistry,
     IncidentReport,
     IncidentSeverity,

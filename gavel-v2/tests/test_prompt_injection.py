@@ -9,7 +9,8 @@ import pytest
 from gavel.prompt_injection import (
     DetectedPattern,
     DetectionResult,
-    InjectionVector,
+    PromptInjectionVector,
+    PromptInjectionVector as InjectionVector,  # backward compat alias
     PromptInjectionDetector,
     Severity,
 )

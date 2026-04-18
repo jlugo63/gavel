@@ -14,10 +14,11 @@ that both the real packages and these stubs satisfy.
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Optional
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -40,7 +41,7 @@ class _StubAgentOSEngine:
     def add_custom_rule(self, rule: Any) -> None:
         self.custom_rules.append(rule)
 
-    def validate_request(self, request: Any) -> Tuple[bool, str]:
+    def validate_request(self, request: Any) -> tuple[bool, str]:
         """Evaluate all custom rules against the request.
 
         Returns (True, "") if all pass, or (False, reason) on first failure.
@@ -88,7 +89,7 @@ class _StubMCPSecurityScanner:
     def __init__(self, **kwargs: Any) -> None:
         self._kwargs = kwargs
 
-    def scan(self, tool_definition: Any) -> Tuple[bool, str]:
+    def scan(self, tool_definition: Any) -> tuple[bool, str]:
         return True, "stub: no scan performed"
 
 
@@ -104,7 +105,7 @@ class _StubPromptInjectionDetector:
         from gavel.prompt_injection import PromptInjectionDetector as _RealDetector
         self._delegate = _RealDetector(**kwargs)
 
-    def detect(self, text: str) -> Tuple[bool, float]:
+    def detect(self, text: str) -> tuple[bool, float]:
         return self._delegate.detect(text)
 
     def scan(self, text: str) -> Any:
@@ -141,13 +142,13 @@ try:
     _AGENT_OS_AVAILABLE = True
 except ImportError:
     _AGENT_OS_AVAILABLE = False
-    AgentOSEngine: Type[_StubAgentOSEngine] = _StubAgentOSEngine
-    StatelessKernel: Type[_StubStatelessKernel] = _StubStatelessKernel
-    ExecutionContext: Type[_StubExecutionContext] = _StubExecutionContext
-    KernelSpace: Type[_StubKernelSpace] = _StubKernelSpace
-    MCPSecurityScanner: Type[_StubMCPSecurityScanner] = _StubMCPSecurityScanner
-    PromptInjectionDetector: Type[_StubPromptInjectionDetector] = _StubPromptInjectionDetector
-    FlightRecorder: Type[_StubFlightRecorder] = _StubFlightRecorder
+    AgentOSEngine: type[_StubAgentOSEngine] = _StubAgentOSEngine
+    StatelessKernel: type[_StubStatelessKernel] = _StubStatelessKernel
+    ExecutionContext: type[_StubExecutionContext] = _StubExecutionContext
+    KernelSpace: type[_StubKernelSpace] = _StubKernelSpace
+    MCPSecurityScanner: type[_StubMCPSecurityScanner] = _StubMCPSecurityScanner
+    PromptInjectionDetector: type[_StubPromptInjectionDetector] = _StubPromptInjectionDetector
+    FlightRecorder: type[_StubFlightRecorder] = _StubFlightRecorder
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -342,19 +343,19 @@ try:
     _AGENTMESH_AVAILABLE = True
 except ImportError:
     _AGENTMESH_AVAILABLE = False
-    TrustScore: Type[_StubTrustScore] = _StubTrustScore
-    AuditEntry: Type[_StubAuditEntry] = _StubAuditEntry
-    AuditLog: Type[_StubAuditLog] = _StubAuditLog
-    AuditChain: Type[_StubAuditChain] = _StubAuditChain
-    RiskScore: Type[_StubRiskScore] = _StubRiskScore
-    RiskScorer: Type[_StubRiskScorer] = _StubRiskScorer
-    ComplianceFramework: Type[_StubComplianceFramework] = _StubComplianceFramework
-    ComplianceReport: Type[_StubComplianceReport] = _StubComplianceReport
-    MeshComplianceEngine: Type[_StubMeshComplianceEngine] = _StubMeshComplianceEngine
-    CapabilityScope: Type[_StubCapabilityScope] = _StubCapabilityScope
-    CapabilityGrant: Type[_StubCapabilityGrant] = _StubCapabilityGrant
-    CapabilityRegistry: Type[_StubCapabilityRegistry] = _StubCapabilityRegistry
-    AgentMeshClient: Type[_StubAgentMeshClient] = _StubAgentMeshClient
+    TrustScore: type[_StubTrustScore] = _StubTrustScore
+    AuditEntry: type[_StubAuditEntry] = _StubAuditEntry
+    AuditLog: type[_StubAuditLog] = _StubAuditLog
+    AuditChain: type[_StubAuditChain] = _StubAuditChain
+    RiskScore: type[_StubRiskScore] = _StubRiskScore
+    RiskScorer: type[_StubRiskScorer] = _StubRiskScorer
+    ComplianceFramework: type[_StubComplianceFramework] = _StubComplianceFramework
+    ComplianceReport: type[_StubComplianceReport] = _StubComplianceReport
+    MeshComplianceEngine: type[_StubMeshComplianceEngine] = _StubMeshComplianceEngine
+    CapabilityScope: type[_StubCapabilityScope] = _StubCapabilityScope
+    CapabilityGrant: type[_StubCapabilityGrant] = _StubCapabilityGrant
+    CapabilityRegistry: type[_StubCapabilityRegistry] = _StubCapabilityRegistry
+    AgentMeshClient: type[_StubAgentMeshClient] = _StubAgentMeshClient
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -474,11 +475,11 @@ except ImportError:
     _AGENT_KERNEL_AVAILABLE = False
     ActionType = _StubActionType  # type: ignore[misc]
     PermissionLevel = _StubPermissionLevel  # type: ignore[misc]
-    AgentContext: Type[_StubAgentContext] = _StubAgentContext
-    ExecutionRequest: Type[_StubExecutionRequest] = _StubExecutionRequest
-    PolicyRule: Type[_StubPolicyRule] = _StubPolicyRule
-    ComplianceEngine: Type[_StubComplianceEngine] = _StubComplianceEngine
-    GovernanceLayer: Type[_StubGovernanceLayer] = _StubGovernanceLayer
+    AgentContext: type[_StubAgentContext] = _StubAgentContext
+    ExecutionRequest: type[_StubExecutionRequest] = _StubExecutionRequest
+    PolicyRule: type[_StubPolicyRule] = _StubPolicyRule
+    ComplianceEngine: type[_StubComplianceEngine] = _StubComplianceEngine
+    GovernanceLayer: type[_StubGovernanceLayer] = _StubGovernanceLayer
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -501,8 +502,8 @@ class _StubAgentRiskProfile:
         self,
         agent_id: str = "",
         agent_type: str = "",
-        capabilities: Optional[List[str]] = None,
-        data_categories: Optional[List[str]] = None,
+        capabilities: Optional[list[str]] = None,
+        data_categories: Optional[list[str]] = None,
         deployment_context: str = "",
         intended_purpose: str = "",
     ) -> None:
@@ -520,7 +521,7 @@ class _StubClassificationResult:
     def __init__(
         self,
         risk_level: _StubRiskLevel = _StubRiskLevel.MINIMAL,
-        article_references: Optional[List[str]] = None,
+        article_references: Optional[list[str]] = None,
         reasoning: str = "",
         classified_at: Optional[datetime] = None,
     ) -> None:
@@ -537,7 +538,7 @@ class _StubAnnexIVDocument:
         self,
         document_id: str = "",
         agent_id: str = "",
-        sections: Optional[Dict[str, Any]] = None,
+        sections: Optional[dict[str, Any]] = None,
         generated_at: Optional[datetime] = None,
         version: str = "1.0",
     ) -> None:
@@ -575,7 +576,9 @@ class _StubEUAIActRiskClassifier:
                         reasoning=f"Classified via Gavel compliance module for {agent_profile.agent_id}",
                     )
             except Exception:
-                pass
+                logging.getLogger(__name__).debug(
+                    "Compliance classify_risk failed for %s", agent_profile.agent_id, exc_info=True
+                )
         # Fallback: basic classification
         return _StubClassificationResult(
             risk_level=_StubRiskLevel.MINIMAL,
@@ -590,7 +593,7 @@ class _StubTechnicalDocumentationExporter:
     def __init__(self, **kwargs: Any) -> None:
         self._kwargs = kwargs
 
-    def export(self, agent_id: str, context: Optional[Dict[str, Any]] = None) -> _StubAnnexIVDocument:
+    def export(self, agent_id: str, context: Optional[dict[str, Any]] = None) -> _StubAnnexIVDocument:
         """Export Annex IV technical documentation for an agent."""
         return _StubAnnexIVDocument(
             agent_id=agent_id,
@@ -612,18 +615,18 @@ try:
 except ImportError:
     _AGENT_COMPLIANCE_AVAILABLE = False
     RiskLevel = _StubRiskLevel  # type: ignore[misc]
-    AgentRiskProfile: Type[_StubAgentRiskProfile] = _StubAgentRiskProfile
-    ClassificationResult: Type[_StubClassificationResult] = _StubClassificationResult
-    AnnexIVDocument: Type[_StubAnnexIVDocument] = _StubAnnexIVDocument
-    EUAIActRiskClassifier: Type[_StubEUAIActRiskClassifier] = _StubEUAIActRiskClassifier
-    TechnicalDocumentationExporter: Type[_StubTechnicalDocumentationExporter] = _StubTechnicalDocumentationExporter
+    AgentRiskProfile: type[_StubAgentRiskProfile] = _StubAgentRiskProfile
+    ClassificationResult: type[_StubClassificationResult] = _StubClassificationResult
+    AnnexIVDocument: type[_StubAnnexIVDocument] = _StubAnnexIVDocument
+    EUAIActRiskClassifier: type[_StubEUAIActRiskClassifier] = _StubEUAIActRiskClassifier
+    TechnicalDocumentationExporter: type[_StubTechnicalDocumentationExporter] = _StubTechnicalDocumentationExporter
 
 
 # ═══════════════════════════════════════════════════════════════
 # Status / introspection
 # ═══════════════════════════════════════════════════════════════
 
-def get_agt_status() -> Dict[str, Any]:
+def get_agt_status() -> dict[str, Any]:
     """Return which AGT packages are available and what mode each is running in.
 
     Returns a dict like:
@@ -634,7 +637,7 @@ def get_agt_status() -> Dict[str, Any]:
             "all_real": False,
         }
     """
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "agent_os": {
             "available": _AGENT_OS_AVAILABLE,
             "mode": "real" if _AGENT_OS_AVAILABLE else "stub",
@@ -665,7 +668,7 @@ def get_agt_status() -> Dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════
 
 __all__ = [
-    # Core (backward-compatible names)
+    # Core
     "AgentOSEngine",
     "AgentMeshClient",
     "PolicyRule",

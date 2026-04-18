@@ -20,10 +20,8 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger("gavel.observability")
@@ -399,7 +397,7 @@ def _parse_label_str(s: str) -> dict[str, str]:
     try:
         import ast
         return ast.literal_eval(s)
-    except Exception:
+    except (ValueError, SyntaxError):
         return {}
 
 
@@ -482,7 +480,7 @@ try:
         return PlainTextResponse(exporter.render(), media_type="text/plain; version=0.0.4")
 
 except ImportError:  # pragma: no cover
-    metrics_router = None  # type: ignore[assignment]
+    metrics_router = None
 
 
 # ── Exports ─────────────────────────────────────────────────────────

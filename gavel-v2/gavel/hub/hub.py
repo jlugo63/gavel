@@ -70,7 +70,6 @@ class GavelHub:
         ep.last_heartbeat = datetime.now(timezone.utc)
         ep.status = EndpointStatus.ONLINE
         if active_agent_ids is not None:
-            # Check for new unregistered agents
             for aid in active_agent_ids:
                 if not self.enrollment.get(aid):
                     self.alerts.create_alert(

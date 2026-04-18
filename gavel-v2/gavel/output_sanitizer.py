@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 # Injection vector categories
 # ═══════════════════════════════════════════════════════════════
 
-class InjectionVector(str, Enum):
+class OutputInjectionVector(str, Enum):
     """Categories of output injection attacks."""
     XSS = "xss"
     SQL_INJECTION = "sql_injection"
@@ -35,6 +35,9 @@ class InjectionVector(str, Enum):
     TEMPLATE_INJECTION = "template_injection"
     PATH_TRAVERSAL = "path_traversal"
 
+# Backward-compatible alias
+InjectionVector = OutputInjectionVector
+
 
 # ═══════════════════════════════════════════════════════════════
 # Result models
@@ -42,7 +45,7 @@ class InjectionVector(str, Enum):
 
 class SanitizationFinding(BaseModel):
     """A single detected injection pattern in agent output."""
-    vector: InjectionVector
+    vector: OutputInjectionVector
     pattern_matched: str
     location: str = "output"
     snippet: str = ""
@@ -63,7 +66,7 @@ class SanitizationResult(BaseModel):
         return len(self.findings)
 
     @property
-    def vectors_found(self) -> list[InjectionVector]:
+    def vectors_found(self) -> list[OutputInjectionVector]:
         return list({f.vector for f in self.findings})
 
 
@@ -72,7 +75,7 @@ class SanitizationResult(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 # Each entry: (compiled_regex, pattern_name, vector, confidence)
-_PatternEntry = tuple[re.Pattern[str], str, InjectionVector, float]
+_PatternEntry = tuple[re.Pattern[str], str, OutputInjectionVector, float]
 
 # Size limit: skip scanning if text exceeds 1 MB
 _MAX_SCAN_SIZE = 1_048_576
@@ -81,55 +84,55 @@ _XSS_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"<\s*script\b", re.IGNORECASE),
         "script_tag",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.95,
     ),
     (
         re.compile(r"javascript\s*:", re.IGNORECASE),
         "javascript_uri",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.90,
     ),
     (
         re.compile(r"\bon\w+\s*=", re.IGNORECASE),
         "event_handler_attr",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.80,
     ),
     (
         re.compile(r"<\s*img\b[^>]*\bonerror\b", re.IGNORECASE),
         "img_onerror",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.95,
     ),
     (
         re.compile(r"<\s*iframe\b", re.IGNORECASE),
         "iframe_tag",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.85,
     ),
     (
         re.compile(r"<\s*svg\b[^>]*\bonload\b", re.IGNORECASE),
         "svg_onload",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.95,
     ),
     (
         re.compile(r"<\s*embed\b", re.IGNORECASE),
         "embed_tag",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.80,
     ),
     (
         re.compile(r"<\s*object\b", re.IGNORECASE),
         "object_tag",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.80,
     ),
     (
         re.compile(r"expression\s*\(", re.IGNORECASE),
         "css_expression",
-        InjectionVector.XSS,
+        OutputInjectionVector.XSS,
         0.85,
     ),
 ]
@@ -138,55 +141,55 @@ _SQL_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"'\s*OR\s+1\s*=\s*1", re.IGNORECASE),
         "or_1_eq_1",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.95,
     ),
     (
         re.compile(r"\bUNION\s+SELECT\b", re.IGNORECASE),
         "union_select",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.95,
     ),
     (
         re.compile(r"\bDROP\s+TABLE\b", re.IGNORECASE),
         "drop_table",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.90,
     ),
     (
         re.compile(r";\s*DELETE\b", re.IGNORECASE),
         "semicolon_delete",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.90,
     ),
     (
         re.compile(r"--\s*$", re.MULTILINE),
         "sql_comment_eol",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.50,
     ),
     (
         re.compile(r"\bxp_cmdshell\b", re.IGNORECASE),
         "xp_cmdshell",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.95,
     ),
     (
         re.compile(r"\bEXEC\s*\(\s*'", re.IGNORECASE),
         "exec_string",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.85,
     ),
     (
         re.compile(r";\s*INSERT\s+INTO\b", re.IGNORECASE),
         "semicolon_insert",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.85,
     ),
     (
         re.compile(r"\bSLEEP\s*\(\s*\d+\s*\)", re.IGNORECASE),
         "sql_sleep",
-        InjectionVector.SQL_INJECTION,
+        OutputInjectionVector.SQL_INJECTION,
         0.80,
     ),
 ]
@@ -195,55 +198,55 @@ _COMMAND_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r";\s*rm\s", re.IGNORECASE),
         "semicolon_rm",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.90,
     ),
     (
         re.compile(r"\|\s*cat\s", re.IGNORECASE),
         "pipe_cat",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.75,
     ),
     (
         re.compile(r"`[^`]+`"),
         "backtick_exec",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.70,
     ),
     (
         re.compile(r"\$\([^)]+\)"),
         "dollar_paren_exec",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.70,
     ),
     (
         re.compile(r"&&\s*wget\s", re.IGNORECASE),
         "and_wget",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.90,
     ),
     (
         re.compile(r"\|\s*nc\s", re.IGNORECASE),
         "pipe_netcat",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.90,
     ),
     (
         re.compile(r">\s*/etc/", re.IGNORECASE),
         "redirect_etc",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.90,
     ),
     (
         re.compile(r";\s*curl\s", re.IGNORECASE),
         "semicolon_curl",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.85,
     ),
     (
         re.compile(r"&&\s*chmod\s", re.IGNORECASE),
         "and_chmod",
-        InjectionVector.COMMAND_INJECTION,
+        OutputInjectionVector.COMMAND_INJECTION,
         0.85,
     ),
 ]
@@ -252,31 +255,31 @@ _LDAP_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"\)\("),
         "ldap_close_open",
-        InjectionVector.LDAP_INJECTION,
+        OutputInjectionVector.LDAP_INJECTION,
         0.70,
     ),
     (
         re.compile(r"\*\)\("),
         "ldap_wildcard_close_open",
-        InjectionVector.LDAP_INJECTION,
+        OutputInjectionVector.LDAP_INJECTION,
         0.80,
     ),
     (
         re.compile(r"\|\("),
         "ldap_or_open",
-        InjectionVector.LDAP_INJECTION,
+        OutputInjectionVector.LDAP_INJECTION,
         0.70,
     ),
     (
         re.compile(r"&\("),
         "ldap_and_open",
-        InjectionVector.LDAP_INJECTION,
+        OutputInjectionVector.LDAP_INJECTION,
         0.70,
     ),
     (
         re.compile(r"\x00"),
         "null_byte",
-        InjectionVector.LDAP_INJECTION,
+        OutputInjectionVector.LDAP_INJECTION,
         0.90,
     ),
 ]
@@ -285,43 +288,43 @@ _TEMPLATE_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"\{\{.*\}\}"),
         "double_brace",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.75,
     ),
     (
         re.compile(r"\{%.*%\}"),
         "jinja_block",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.85,
     ),
     (
         re.compile(r"\$\{[^}]+\}"),
         "dollar_brace",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.70,
     ),
     (
         re.compile(r"<%=.*%>"),
         "erb_expression",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.85,
     ),
     (
         re.compile(r"#\{[^}]+\}"),
         "hash_brace",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.65,
     ),
     (
         re.compile(r"\{\{.*\.__class__", re.IGNORECASE),
         "jinja_class_access",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.95,
     ),
     (
         re.compile(r"\$\{T\(", re.IGNORECASE),
         "spring_el",
-        InjectionVector.TEMPLATE_INJECTION,
+        OutputInjectionVector.TEMPLATE_INJECTION,
         0.90,
     ),
 ]
@@ -330,37 +333,37 @@ _PATH_TRAVERSAL_PATTERNS: list[_PatternEntry] = [
     (
         re.compile(r"\.\./"),
         "dot_dot_slash",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.80,
     ),
     (
         re.compile(r"\.\.\\"),
         "dot_dot_backslash",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.80,
     ),
     (
         re.compile(r"%2e%2e[/%]", re.IGNORECASE),
         "encoded_dot_dot",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.90,
     ),
     (
         re.compile(r"/etc/passwd\b"),
         "etc_passwd",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.90,
     ),
     (
         re.compile(r"C:\\Windows\\", re.IGNORECASE),
         "windows_system_path",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.70,
     ),
     (
         re.compile(r"/etc/shadow\b"),
         "etc_shadow",
-        InjectionVector.PATH_TRAVERSAL,
+        OutputInjectionVector.PATH_TRAVERSAL,
         0.95,
     ),
 ]

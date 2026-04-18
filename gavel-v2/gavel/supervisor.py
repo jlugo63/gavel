@@ -10,11 +10,14 @@ Runs inside the FastAPI process as an asyncio task. Every tick:
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from gavel.agents import AgentRegistry, AgentStatus
 from gavel.events import EventBus, DashboardEvent
 from gavel.liveness import LivenessMonitor
+
+logger = logging.getLogger(__name__)
 
 
 class Supervisor:
@@ -57,14 +60,13 @@ class Supervisor:
             try:
                 await self._tick()
             except Exception:
-                pass  # Supervisor must not crash
+                logger.exception("Supervisor tick failed")
             await asyncio.sleep(self._tick_interval)
 
     async def _tick(self) -> None:
         """Single supervisor tick — check heartbeats and liveness."""
         now = datetime.now(timezone.utc)
 
-        # Check agent heartbeats
         for agent in await self._registry.get_all():
             if agent.status in (AgentStatus.SUSPENDED, AgentStatus.DEAD):
                 continue

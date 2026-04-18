@@ -19,7 +19,7 @@ from enum import Enum
 from typing import Any
 
 from gavel.blastbox import EvidencePacket, ScopeDeclaration
-from gavel.privacy import PrivacyScanResult, scan_text
+from gavel.privacy import scan_text
 
 
 class ReviewVerdict(str, Enum):
@@ -226,7 +226,6 @@ class EvidenceReviewer:
                         severity="fail",
                     ))
 
-        # Compute verdict
         has_failures = any(f.severity == "fail" and not f.passed for f in findings)
         has_warnings = any(f.severity == "warn" and not f.passed for f in findings)
 

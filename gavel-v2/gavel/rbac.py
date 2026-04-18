@@ -1,9 +1,9 @@
 """
-Role-based and attribute-based access control for operators — Phase 8.
+Role-based and attribute-based access control for operators.
 
-Gavel has always enforced agent-side separation of powers (proposer ≠
-reviewer ≠ approver). Phase 8 extends this to operator-side access
-control: *which humans* may do *which governance operations*.
+Gavel enforces agent-side separation of powers (proposer ≠ reviewer ≠
+approver). This module extends that to operator-side access control:
+*which humans* may do *which governance operations*.
 
 Two layers:
 
@@ -159,6 +159,14 @@ class AccessDecision(BaseModel):
     decided_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AccessDeniedError(PermissionError):
+    """PermissionError carrying a structured :class:`AccessDecision`."""
+
+    def __init__(self, reason: str, decision: AccessDecision) -> None:
+        super().__init__(reason)
+        self.decision = decision
+
+
 # ── Default policy ─────────────────────────────────────────────
 
 def default_policy() -> AccessPolicy:
@@ -299,7 +307,5 @@ class AccessChecker:
             context=context,
         )
         if not decision.allowed:
-            err = PermissionError(decision.reason)
-            err.decision = decision  # type: ignore[attr-defined]
-            raise err
+            raise AccessDeniedError(decision.reason, decision)
         return decision

@@ -28,7 +28,8 @@ from gavel.proxy.config import (
 )
 from gavel.proxy.domain import DomainMatcher
 from gavel.proxy.enforcement import (
-    EnforcementAction,
+    ProxyEnforcementAction,
+    ProxyEnforcementAction as EnforcementAction,  # backward compat
     EnforcementLedger,
     LedgerEntry,
 )
@@ -44,7 +45,8 @@ __all__ = [
     "DOCKER_PROXY_PORT",
     "DomainEntry",
     "DomainMatcher",
-    "EnforcementAction",
+    "ProxyEnforcementAction",
+    "EnforcementAction",  # backward compat alias for ProxyEnforcementAction
     "EnforcementLedger",
     "LedgerEntry",
     "main",

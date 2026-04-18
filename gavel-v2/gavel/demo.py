@@ -26,7 +26,7 @@ import time
 
 from gavel.chain import GovernanceChain, EventType, ChainStatus
 from gavel.separation import SeparationOfPowers, SeparationViolation, ChainRole
-from gavel.tiers import TierPolicy, RiskFactors, AutonomyTier
+from gavel.tiers import TierPolicy, RiskFactors
 from gavel.constitution import Constitution
 from gavel.blastbox import ScopeDeclaration, EvidencePacket
 from gavel.evidence import EvidenceReviewer
@@ -267,7 +267,6 @@ def run_demo() -> None:
 
     sop.assign("agent:deploy-authority", ChainRole.APPROVER, chain.chain_id)
 
-    # Check constitutional invariants before approval
     violations = constitution.check_chain_invariants(chain)
     if violations:
         _fail(f"Constitutional violations: {violations}")

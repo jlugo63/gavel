@@ -1,13 +1,11 @@
 """FastAPI dependency providers for Gavel services.
 
 Single home for the `Depends()` callables that supply shared services to
-routers. The lifecycle is unchanged from the previous module-global model
-(process-scoped singletons), but services are now obtained through DI
-which makes them overridable via `app.dependency_overrides`.
+routers. Process-scoped singletons obtained through DI so they are
+overridable via `app.dependency_overrides`.
 
-Wave 3: chains, evidence, review results, and execution tokens are no
-longer in-memory dicts — they are persisted through repositories keyed
-off a shared async sessionmaker.
+Chains, evidence, review results, and execution tokens are persisted
+through repositories backed by a shared async sessionmaker.
 """
 
 from __future__ import annotations

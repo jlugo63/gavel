@@ -1,5 +1,5 @@
 """
-Cross-chain collusion detection — Phase 7.
+Cross-chain collusion detection.
 
 Separation of powers (gavel/separation.py) enforces that proposer ≠
 reviewer ≠ approver on a *single* chain. That's necessary but not
@@ -40,6 +40,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from gavel.types import Severity
+
 
 class CollusionSignal(str, Enum):
     MUTUAL_APPROVAL = "mutual_approval"
@@ -48,10 +50,8 @@ class CollusionSignal(str, Enum):
     ROUND_ROBIN = "round_robin"
 
 
-class CollusionSeverity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# Use shared Severity; keep backward-compatible alias
+CollusionSeverity = Severity
 
 
 class ChainParticipation(BaseModel):
@@ -114,7 +114,6 @@ class CollusionDetector:
 
         self._chains.append(participation)
 
-        # Update the approval index for the new entry
         if participation.approver and participation.proposer != participation.approver:
             self._approval_index[(participation.proposer, participation.approver)].append(
                 participation.chain_id

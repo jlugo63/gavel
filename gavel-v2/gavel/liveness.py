@@ -12,7 +12,6 @@ timeout, the default is DENY."
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -92,7 +91,7 @@ class LivenessMonitor:
 
     def __init__(self):
         self._timeouts: dict[str, EscalationTimeout] = {}
-        self._callbacks: list[Callable[[str, EscalationLevel], Any]] = []
+        self._callbacks: list[Callable[[str, EscalationLevel], None]] = []
 
     def track(self, chain_id: str, sla_seconds: int) -> EscalationTimeout:
         """Start tracking an SLA deadline for a chain."""
@@ -130,7 +129,7 @@ class LivenessMonitor:
             if t.level == level and not t.resolved
         ]
 
-    def on_escalation(self, callback: Callable[[str, EscalationLevel], Any]):
+    def on_escalation(self, callback: Callable[[str, EscalationLevel], None]) -> None:
         """Register a callback for escalation events."""
         self._callbacks.append(callback)
 

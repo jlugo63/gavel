@@ -54,7 +54,6 @@ import json
 import logging
 import sys
 import time
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -117,8 +116,8 @@ class OllamaClient:
                         self.model = m  # use the actual available model name
                         self.available = True
                         return True
-        except Exception:
-            pass
+        except (httpx.HTTPError, KeyError, ValueError):
+            pass  # Ollama unreachable or unexpected response shape
         self.available = False
         return False
 
@@ -220,8 +219,8 @@ class GavelClient:
                 f"{self.base_url}/agents/{agent_id}/heartbeat",
                 json={"activity": activity},
             )
-        except Exception:
-            pass
+        except httpx.HTTPError:
+            pass  # Best-effort heartbeat — gateway may be temporarily unreachable
 
     def liveness(self) -> dict:
         resp = self._client.get(f"{self.base_url}/liveness")
@@ -325,7 +324,6 @@ class PocketAgent:
         print("║    Hybrid Qwen/Claude governance evaluator       ║")
         print("╚══════════════════════════════════════════════════╝\n")
 
-        # Check gateway
         try:
             status = self.gavel.status()
             print(f"  Gateway:  CONNECTED ({status['agents']} agents, {status['chains']} chains)")
@@ -334,7 +332,6 @@ class PocketAgent:
             print("  Start the gateway first: uvicorn gavel.gateway:app --port 8100")
             sys.exit(1)
 
-        # Register this agent with the gateway
         backends = []
         if not self.claude_only:
             backends.append("Ollama/Qwen")
@@ -347,7 +344,6 @@ class PocketAgent:
         )
         print(f"  Registered: {self.agent_id} — DID: {reg.get('did', '?')[:24]}...")
 
-        # Check Ollama + Qwen
         if not self.claude_only:
             if self.ollama.check():
                 print(f"  Ollama:   AVAILABLE (model: {self.ollama.model})")
@@ -355,7 +351,6 @@ class PocketAgent:
                 print(f"  Ollama:   NOT AVAILABLE — will use Claude for all evaluations")
                 self.claude_only = True
 
-        # Check Claude API
         if self.claude.check():
             print(f"  Claude:   AVAILABLE (model: {self.claude.model})")
         else:
@@ -397,7 +392,6 @@ class PocketAgent:
             if chain_id in self.processed:
                 continue
 
-            # Fetch full chain data
             chain_data = self.gavel.chain(chain_id)
             if not chain_data or chain_data.get("status") != "ESCALATED":
                 continue
@@ -408,7 +402,6 @@ class PocketAgent:
         """Evaluate a single escalated chain using the hybrid approach."""
         context = build_chain_context(chain_data)
 
-        # Extract risk from intent event
         events = chain_data.get("events", [])
         intent = next((e for e in events if e["type"] == "INBOUND_INTENT"), None)
         risk = intent["payload"].get("risk", 0.5) if intent else 0.5

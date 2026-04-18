@@ -8,6 +8,7 @@ existing enrollment, chain, evidence, and constitutional data.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional, TYPE_CHECKING
@@ -17,15 +18,25 @@ from pydantic import BaseModel, Field
 from gavel.enrollment import HighRiskCategory
 
 if TYPE_CHECKING:
+    from gavel.chain import GovernanceChain
+    from gavel.constitution import Constitution
     from gavel.db.repositories import IncidentRepository
+    from gavel.evidence import ReviewResult
+    from gavel.models.enrollment import EnrollmentRecord
+    from gavel.tiers import TierPolicy
 
 
 class ComplianceStatus(str, Enum):
-    """Overall compliance assessment status."""
+    """Overall compliance assessment status.
+
+    Used by both the EU AI Act compliance module and fleet inventory.
+    """
     COMPLIANT = "compliant"
     PARTIALLY_COMPLIANT = "partially_compliant"
     NON_COMPLIANT = "non_compliant"
     ASSESSMENT_REQUIRED = "assessment_required"
+    PARTIAL = "partial"            # Fleet: score >= 0.5
+    UNKNOWN = "unknown"            # Fleet: no score available
 
 
 class IncidentSeverity(str, Enum):
@@ -47,7 +58,7 @@ class IncidentStatus(str, Enum):
 
 class IncidentReport(BaseModel):
     """Auto-generated incident report per EU AI Act Article 73."""
-    incident_id: str = Field(default_factory=lambda: f"inc-{__import__('uuid').uuid4().hex[:8]}")
+    incident_id: str = Field(default_factory=lambda: f"inc-{uuid.uuid4().hex[:8]}")
     agent_id: str
     severity: IncidentSeverity
     status: IncidentStatus = IncidentStatus.OPEN
@@ -223,11 +234,11 @@ class AnnexIVGenerator:
 
     def __init__(
         self,
-        enrollment_record: Any = None,
-        chains: list[Any] | None = None,
-        review_results: list[Any] | None = None,
-        constitution: Any = None,
-        tier_policy: Any = None,
+        enrollment_record: EnrollmentRecord | None = None,
+        chains: list[GovernanceChain] | None = None,
+        review_results: list[ReviewResult] | None = None,
+        constitution: Constitution | None = None,
+        tier_policy: TierPolicy | None = None,
         incidents: list[IncidentReport] | None = None,
     ):
         self._enrollment = enrollment_record

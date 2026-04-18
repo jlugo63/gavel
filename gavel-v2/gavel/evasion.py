@@ -35,9 +35,9 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Optional
-
 from pydantic import BaseModel, Field
+
+from gavel.types import Severity
 
 
 # ── Signal primitives ──────────────────────────────────────────
@@ -51,10 +51,8 @@ class EvasionSignal(str, Enum):
     KILL_SWITCH_EVASION = "kill_switch_evasion"
 
 
-class EvasionSeverity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# Use shared Severity; keep backward-compatible alias
+EvasionSeverity = Severity
 
 
 class EvasionFinding(BaseModel):

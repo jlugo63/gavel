@@ -7,6 +7,7 @@ and verification.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
@@ -31,7 +32,7 @@ class CAPAStatus(str, Enum):
 class NonConformity(BaseModel):
     """A recorded nonconformity (deviation from requirement or expectation)."""
 
-    nc_id: str = Field(default_factory=lambda: f"nc-{__import__('uuid').uuid4().hex[:8]}")
+    nc_id: str = Field(default_factory=lambda: f"nc-{uuid.uuid4().hex[:8]}")
     title: str
     description: str
     source: str  # "audit", "incident", "drift_detection", "customer_complaint"
@@ -44,7 +45,7 @@ class NonConformity(BaseModel):
 class CorrectiveAction(BaseModel):
     """A corrective / preventive action linked to a nonconformity."""
 
-    action_id: str = Field(default_factory=lambda: f"ca-{__import__('uuid').uuid4().hex[:8]}")
+    action_id: str = Field(default_factory=lambda: f"ca-{uuid.uuid4().hex[:8]}")
     nc_id: str  # links to NonConformity
     description: str
     assigned_to: str

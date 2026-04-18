@@ -202,7 +202,6 @@ class GovernanceChain:
         expected_prev = genesis
 
         for i, event in enumerate(events):
-            # Check prev_hash links
             if event["prev_hash"] != expected_prev:
                 errors.append(
                     f"Event {i}: prev_hash mismatch "

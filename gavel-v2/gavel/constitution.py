@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from gavel.chain import GovernanceChain
 
 
 class InvariantClass(str, Enum):
@@ -135,7 +135,7 @@ class Constitution:
     def get_invariant(self, article_id: str) -> Invariant | None:
         return self.invariants.get(article_id)
 
-    def check_chain_invariants(self, chain: Any) -> list[str]:
+    def check_chain_invariants(self, chain: GovernanceChain) -> list[str]:
         """
         Verify all constitutional invariants against a governance chain.
         Returns a list of violation descriptions (empty = all pass).

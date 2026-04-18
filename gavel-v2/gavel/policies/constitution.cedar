@@ -107,7 +107,7 @@ forbid(
 ) when { principal.enrolled == false };
 
 // ============================================================
-// Article VI — Kill Switch & Registration (Phase 3)
+// Article VI — Kill Switch & Registration
 // ============================================================
 
 // VI.1 — Suspended agents are denied ALL actions (kill switch)
@@ -135,7 +135,7 @@ forbid(
 ) when { principal.registered == false };
 
 // ============================================================
-// Article VII — Dangerous Command Guard (Phase 3)
+// Article VII — Dangerous Command Guard
 // ============================================================
 
 // VII.1 — Destructive shell commands are forbidden

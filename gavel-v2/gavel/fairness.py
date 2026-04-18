@@ -25,6 +25,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from gavel.types import Severity
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,10 +111,8 @@ class FairnessDriftReport(BaseModel):
 
 # ── Violation ─────────────────────────────────────────────────
 
-class FairnessViolationSeverity(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+# Use shared Severity; keep backward-compatible alias
+FairnessViolationSeverity = Severity
 
 
 class FairnessViolation(BaseModel):

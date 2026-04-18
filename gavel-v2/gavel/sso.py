@@ -21,7 +21,6 @@ Design constraints:
 from __future__ import annotations
 
 import hashlib
-import hmac
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone

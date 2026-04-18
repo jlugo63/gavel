@@ -1,26 +1,22 @@
 """
-Ed25519 principal identity — real cryptographic signatures for governance chains.
+Ed25519 principal identity — cryptographic signatures for governance chains.
 
-Replaces the DID stubs with actual Ed25519 key pairs. Each principal (agent)
-gets a persistent identity that can sign chain events, proving authorship
-and preventing repudiation.
+Each principal (agent) gets an Ed25519 key pair that can sign chain events,
+proving authorship and preventing repudiation.
 """
 
 from __future__ import annotations
 import hashlib
-import json
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-# Try real Ed25519 backends
 try:
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey, Ed25519PublicKey
     )
     from cryptography.hazmat.primitives import serialization
-    from cryptography.exceptions import InvalidSignature
     _CRYPTO_BACKEND = "cryptography"
 except ImportError:
     try:
@@ -144,7 +140,7 @@ class Ed25519KeyPair:
         except (ValueError, TypeError):
             return False
         except Exception as exc:
-            # Handle backend-specific signature errors
+            # Catch by name — the exception class depends on which crypto backend is loaded
             exc_name = type(exc).__name__
             if exc_name in ("InvalidSignature", "BadSignatureError", "CryptoError"):
                 return False
@@ -156,7 +152,7 @@ class PrincipalIdentity:
     """A cryptographic identity for a governance principal.
 
     Each agent/principal gets an Ed25519 key pair and a DID derived
-    from the public key. This replaces the MD5-based DID stubs.
+    from the public key hash.
     """
     agent_id: str
     key_pair: Ed25519KeyPair
@@ -168,7 +164,6 @@ class PrincipalIdentity:
         if not self.public_key_hex:
             self.public_key_hex = self.key_pair.public_key_hex
         if not self.did:
-            # DID derived from public key hash (not agent_id like stubs)
             key_hash = hashlib.sha256(self.key_pair.public_key_bytes).hexdigest()
             self.did = f"did:gavel:{key_hash[:32]}"
 

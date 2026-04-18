@@ -43,7 +43,6 @@ class UnregisteredAgentMonitor:
             )
             alerts.append(alert)
             self._alerts.append(alert)
-        # Update known set
         self._known_tools[endpoint_id] = set(current_tools)
         return alerts
 

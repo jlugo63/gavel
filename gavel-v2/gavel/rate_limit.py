@@ -24,7 +24,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -56,7 +56,7 @@ class RateLimiter(Protocol):
 
     async def check_and_record(self, agent_id: str, now: Optional[float] = None) -> RateLimitResult: ...
 
-    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict: ...
+    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict[str, str | int]: ...
 
     async def reset(self, agent_id: str) -> None: ...
 
@@ -149,7 +149,7 @@ class InProcessRateLimiter:
                 reason="Within rate limit",
             )
 
-    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict:
+    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict[str, str | int]:
         """Get current rate limit usage for an agent (read-only, no recording)."""
         if now is None:
             now = time.monotonic()
@@ -246,10 +246,8 @@ class RedisRateLimiter:
         if now is None:
             now = time.time()
 
-        # Update last-seen
         await self._redis.set(self._seen_key(agent_id), str(now))
 
-        # Check if a limit is configured
         raw_limit = await self._redis.get(self._limit_key(agent_id))
         if raw_limit is None:
             return RateLimitResult(allowed=True, reason="No rate limit configured")
@@ -304,7 +302,7 @@ class RedisRateLimiter:
             reason="Within rate limit",
         )
 
-    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict:
+    async def get_usage(self, agent_id: str, now: Optional[float] = None) -> dict[str, str | int]:
         """Get current rate limit usage for an agent (read-only, no recording)."""
         if now is None:
             now = time.time()
@@ -354,7 +352,6 @@ class RedisRateLimiter:
                 continue
             ts = float(raw_ts)
             if ts < cutoff:
-                # Extract agent_id from key
                 if isinstance(key, bytes):
                     key_str = key.decode("utf-8")
                 else:
@@ -372,7 +369,7 @@ class RedisRateLimiter:
         return removed
 
 
-def create_rate_limiter(redis: Optional["Redis"] = None) -> RateLimiter:
+def create_rate_limiter(redis: Optional["Redis"] = None) -> InProcessRateLimiter | RedisRateLimiter:
     """Factory: return a Redis-backed limiter if *redis* is provided, else in-process.
 
     Typical usage from the DI layer::
@@ -381,8 +378,8 @@ def create_rate_limiter(redis: Optional["Redis"] = None) -> RateLimiter:
         limiter = create_rate_limiter(client)
     """
     if redis is not None:
-        return RedisRateLimiter(redis)  # type: ignore[return-value]
-    return InProcessRateLimiter()  # type: ignore[return-value]
+        return RedisRateLimiter(redis)
+    return InProcessRateLimiter()
 
 
 # ── S-4: Budget Enforcement ──────────────────────────────────────
@@ -480,7 +477,6 @@ class BudgetTracker:
             tokens_used = state["tokens_used"]
             usd_used = state["usd_used"]
 
-            # Check token budget (only if configured)
             if budget_tokens > 0:
                 tokens_remaining = budget_tokens - tokens_used
                 if token_cost > tokens_remaining:
@@ -495,7 +491,6 @@ class BudgetTracker:
                         usd_remaining=round(budget_usd - usd_used, 6) if budget_usd > 0 else 0.0,
                     )
 
-            # Check USD budget (only if configured)
             if budget_usd > 0:
                 usd_remaining = budget_usd - usd_used
                 if usd_cost > usd_remaining + 1e-9:  # float tolerance

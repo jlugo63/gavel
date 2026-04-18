@@ -17,9 +17,8 @@ Tier 3: Multi-sig (multiple independent reviewers + human).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any
 
 
 class AutonomyTier(IntEnum):

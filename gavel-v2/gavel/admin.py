@@ -44,7 +44,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from gavel.chain import GovernanceChain, ChainEvent, EventType
+from gavel.chain import GovernanceChain, EventType
 from gavel.enrollment import (
     EnrollmentApplication,
     EnrollmentRegistry,
@@ -441,7 +441,6 @@ class AdminAgent:
         self._action_counter = 0
         self._active = False
 
-        # Validate all three gates
         gate_result = validate_admin_gates(allowlist=allowlist)
 
         if not gate_result.passed:
@@ -699,7 +698,7 @@ def is_admin_safe() -> bool:
 
 def validate_environment_for_production() -> tuple[bool, list[str]]:
     """
-    Comprehensive environment validation for production deployment.
+    Environment validation for production deployment.
 
     Returns:
         Tuple of (is_safe, list_of_warnings).

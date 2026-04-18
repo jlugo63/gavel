@@ -1,11 +1,6 @@
 """Enrollment record persistence backend.
 
 Storage-only: round-trips ``gavel.enrollment.EnrollmentRecord`` values.
-
-Wave 3 note: ``EnrollmentRecordRow`` moved to :mod:`gavel.db.models`
-with matching Alembic migration ``0002_enrollment_records``. It is
-re-exported from this module for backward compatibility with Wave 2B
-call sites.
 """
 
 from __future__ import annotations
@@ -109,4 +104,4 @@ class EnrollmentRepository:
             return [_row_to_record(r) for r in rows]
 
 
-__all__ = ["EnrollmentRepository", "EnrollmentRecordRow"]
+__all__ = ["EnrollmentRepository"]

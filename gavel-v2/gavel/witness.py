@@ -1,5 +1,5 @@
 """
-External audit witness — Phase 8.
+External audit witness.
 
 Gavel's governance chain is tamper-evident internally (every event is
 linked by SHA-256 to its predecessor, and the genesis hash is pinned
@@ -306,7 +306,7 @@ class VerificationStatus(str, Enum):
     COMMITMENT_NOT_FOUND = "commitment_not_found"
 
 
-class VerificationResult(BaseModel):
+class WitnessVerificationResult(BaseModel):
     """Result of verifying a chain against a witness commitment."""
     chain_id: str
     commitment_id: str
@@ -317,6 +317,9 @@ class VerificationResult(BaseModel):
     actual_event_count: int = 0
     verified_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     details: str = ""
+
+# Backward-compatible alias
+VerificationResult = WitnessVerificationResult
 
 
 def compute_merkle_root(event_hashes: list[str]) -> str:
@@ -382,7 +385,7 @@ class AuditWitness:
         self._receipts[receipt.receipt_id] = receipt
         return receipt
 
-    def verify_chain(self, chain_id: str, event_hashes: list[str], commitment_id: str | None = None) -> VerificationResult:
+    def verify_chain(self, chain_id: str, event_hashes: list[str], commitment_id: str | None = None) -> WitnessVerificationResult:
         """Verify a chain against a stored commitment.
 
         If commitment_id is not provided, uses the latest commitment for the chain.
@@ -394,7 +397,7 @@ class AuditWitness:
             commitment = self._commitments.get(chain_cids[-1]) if chain_cids else None
 
         if not commitment:
-            return VerificationResult(
+            return WitnessVerificationResult(
                 chain_id=chain_id,
                 commitment_id=commitment_id or "",
                 status=VerificationStatus.COMMITMENT_NOT_FOUND,
@@ -405,7 +408,7 @@ class AuditWitness:
         actual_count = len(event_hashes)
 
         if actual_count != commitment.event_count:
-            return VerificationResult(
+            return WitnessVerificationResult(
                 chain_id=chain_id,
                 commitment_id=commitment.commitment_id,
                 status=VerificationStatus.EVENT_COUNT_MISMATCH,
@@ -417,7 +420,7 @@ class AuditWitness:
             )
 
         if actual_merkle != commitment.merkle_root:
-            return VerificationResult(
+            return WitnessVerificationResult(
                 chain_id=chain_id,
                 commitment_id=commitment.commitment_id,
                 status=VerificationStatus.MERKLE_MISMATCH,
@@ -428,7 +431,7 @@ class AuditWitness:
                 details="Merkle root mismatch — chain may have been tampered with",
             )
 
-        return VerificationResult(
+        return WitnessVerificationResult(
             chain_id=chain_id,
             commitment_id=commitment.commitment_id,
             status=VerificationStatus.VERIFIED,

@@ -263,13 +263,11 @@ class SupplyChainValidator:
         violations: list[str] = []
         warnings: list[str] = []
 
-        # Validate each tool
         for tool in sbom.tools:
             result = self.validate_tool(tool)
             violations.extend(result.violations)
             warnings.extend(result.warnings)
 
-        # Validate each dependency
         for dep in sbom.dependencies:
             dep_violations = self.check_dependency(dep)
             violations.extend(dep_violations)

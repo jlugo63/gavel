@@ -9,9 +9,9 @@ This is the fast path. Low-risk actions get a sub-millisecond allow.
 High-risk actions get a chain_id and a poll URL so the caller can
 wait for governance approval without blocking.
 
-Phase 3: Cedar enforcement is active — the AGT PolicyEngine evaluates
-constitutional rules (kill-switch, registration, dangerous commands)
-before the gate's own risk/tier logic runs.
+The AGT PolicyEngine evaluates constitutional rules (kill-switch,
+registration, dangerous commands) before the gate's own risk/tier
+logic runs.
 """
 
 from __future__ import annotations
@@ -25,7 +25,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from .agents import AgentRegistry, AgentStatus
+from .agt_compat import AgentOSEngine
 from .enrollment import GovernanceToken
+from .liveness import LivenessMonitor
 from .chain import GovernanceChain, ChainStatus, EventType
 from .events import EventBus, DashboardEvent
 from .hooks import classify_risk, should_govern
@@ -60,7 +62,7 @@ _injection_detector = _PIDetector()
 class GateRequest(BaseModel):
     agent_id: str
     tool_name: str
-    tool_input: dict = {}
+    tool_input: dict[str, Any] = {}
     session_id: str = ""
 
 
@@ -209,9 +211,9 @@ async def gate(
     event_bus: EventBus = Depends(get_event_bus),
     chain_repo: ChainRepository = Depends(get_chain_repo),
     chain_locks: ChainLockManager = Depends(get_chain_lock_manager),
-    liveness: Any = Depends(get_liveness),
+    liveness: LivenessMonitor = Depends(get_liveness),
     tier_policy: TierPolicy = Depends(get_tier_policy),
-    policy_engine: Any = Depends(get_agent_os),
+    policy_engine: AgentOSEngine = Depends(get_agent_os),
     rate_limiter: RateLimiter = Depends(get_rate_limiter),
     budget_tracker: BudgetTracker = Depends(get_budget_tracker),
 ) -> GateResponse:
@@ -394,7 +396,7 @@ async def gate(
 async def gate_poll(
     chain_id: str,
     chain_repo: ChainRepository = Depends(get_chain_repo),
-    liveness: Any = Depends(get_liveness),
+    liveness: LivenessMonitor = Depends(get_liveness),
 ) -> GatePollResponse:
     """Poll a governance chain for its current decision status."""
     chain = await chain_repo.get(chain_id)

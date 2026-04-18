@@ -262,7 +262,6 @@ class DeceptionDetector:
             agent_id, chain_id, output_text, enrollment_capabilities
         )
 
-        # Store findings in rolling window
         for f in findings:
             self._findings[agent_id].append(f)
 
@@ -373,12 +372,11 @@ class DeceptionDetector:
         for claim in prior:
             claim_lower = claim.claim_text.lower()
             for pos_pattern, neg_pattern in _NEGATION_PAIRS:
-                # Check if the prior claim matches the positive pattern
                 pos_match = pos_pattern.search(claim_lower)
                 if pos_match:
                     neg_match = neg_pattern.search(output_lower)
                     if neg_match:
-                        # Check if the same subject word is involved
+                        # Only flag if both patterns reference the same subject
                         pos_subject = pos_match.group(1).lower()
                         neg_subject = neg_match.group(1).lower()
                         if pos_subject == neg_subject:
@@ -512,7 +510,6 @@ class DeceptionDetector:
 
         for op_pattern, expected_caveats, description in _RISK_OPERATIONS:
             if op_pattern.search(output_text):
-                # Check if any expected caveats are mentioned
                 has_caveat = any(
                     caveat.lower() in output_lower
                     for caveat in expected_caveats

@@ -45,7 +45,6 @@ import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
 
 import httpx
 import uvicorn
@@ -56,12 +55,11 @@ from gavel.proxy.config import (
     DOCKER_PROXY_PORT,
     PROXY_PORT,
     TOKEN_HEADER,
-    DomainEntry,
     ProxyConfig,
 )
 from gavel.proxy.domain import DomainMatcher
 from gavel.proxy.enforcement import (
-    EnforcementAction,
+    ProxyEnforcementAction as EnforcementAction,
     EnforcementLedger,
     LedgerEntry,
 )
@@ -106,11 +104,7 @@ def create_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
 
     cfg = config or ProxyConfig()
 
-    matcher = (
-        DomainMatcher.from_yaml(cfg.ai_domains[0].pattern)
-        if False  # placeholder -- yaml loading handled via CLI --config
-        else DomainMatcher(cfg.effective_domains())
-    )
+    matcher = DomainMatcher(cfg.effective_domains())
     ledger = EnforcementLedger(path=cfg.ledger_path)
     validator = TokenValidator(cfg)
 
@@ -167,8 +161,8 @@ def create_proxy_app(config: ProxyConfig | None = None) -> FastAPI:
                             allowed += 1
                         elif data.get("action") == "BLOCKED":
                             blocked += 1
-                    except Exception:
-                        pass
+                    except (json.JSONDecodeError, KeyError):
+                        pass  # Malformed ledger line — skip
         return {
             "total": allowed + blocked,
             "allowed": allowed,
@@ -513,7 +507,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 async def serve(args: argparse.Namespace) -> None:
     """Run the proxy (and optionally Docker proxy) as async servers."""
 
-    # Build config from CLI args
     cfg = ProxyConfig(
         port=args.port,
         host=args.host,
@@ -523,7 +516,6 @@ async def serve(args: argparse.Namespace) -> None:
         ledger_path=Path(args.ledger) if args.ledger else ProxyConfig().ledger_path,
     )
 
-    # Load custom domain config if provided
     if args.config:
         matcher = DomainMatcher.from_yaml(args.config)
         cfg.ai_domains = matcher._domains

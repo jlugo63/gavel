@@ -1,4 +1,4 @@
-"""Distributed chain-lock manager for Gavel Phase 11.
+"""Distributed chain-lock manager.
 
 Provides per-chain mutual exclusion so concurrent requests cannot corrupt
 hash chains by interleaving appends.  Two implementations:

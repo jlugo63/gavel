@@ -184,7 +184,6 @@ class AnomalyMonitor:
         elapsed_seconds = elapsed_ms / 1000.0
         sla_met = elapsed_seconds < self._config.sla_target_seconds
 
-        # Update timing state
         self._last_scan_at = start_utc
         self._scan_duration_ms = round(elapsed_ms, 2)
         self._total_scans += 1

@@ -131,7 +131,7 @@ def _compile_prohibited() -> list[tuple[str, list["_re.Pattern[str]"]]]:
 
 _PROHIBITED_PATTERNS = _compile_prohibited()
 
-# Legacy keyword list kept for classify_risk_category fast-path.
+# Keyword list for classify_risk_category fast-path.
 _PROHIBITED_KEYWORDS: list[str] = [
     "social scoring", "social credit",
     "subliminal manipulation", "subliminal technique", "subliminal",
@@ -146,17 +146,15 @@ def classify_risk_category(purpose: PurposeDeclaration, capabilities: Capability
     """Auto-classify agent into EU AI Act Annex III risk category."""
     text = f"{purpose.summary} {purpose.operational_scope}".lower()
 
-    # Check prohibited first — keyword fast path
     for keyword in _PROHIBITED_KEYWORDS:
         if keyword in text:
             return HighRiskCategory.PROHIBITED
 
-    # Regex second pass — catches paraphrased descriptions
+    # Regex pass catches paraphrased descriptions that keyword matching misses
     for _citation, patterns in _PROHIBITED_PATTERNS:
         if any(p.search(text) for p in patterns):
             return HighRiskCategory.PROHIBITED
 
-    # Check high-risk categories
     for category, keywords in _RISK_CATEGORY_KEYWORDS.items():
         for keyword in keywords:
             if keyword in text:
@@ -199,7 +197,6 @@ def detect_prohibited_practices(app: "EnrollmentApplication") -> list[str]:
         if citation not in violations and any(p.search(text) for p in patterns):
             violations.append(citation)
 
-    # Check capabilities for biometric indicators
     tools_text = " ".join(app.capabilities.tools).lower()
     if any(k in tools_text for k in ["facial_recognition", "biometric_scan", "emotion_detect"]):
         if "biometric" not in app.purpose.operational_scope.lower():
@@ -462,8 +459,8 @@ class TokenManager:
 
         Flips ``revoked=True`` on each row so subsequent validations
         can report ``revoked`` rather than ``not recognized``. Returns
-        the revoked token record (first one) for the legacy callers
-        that expect ``Optional[GovernanceToken]``.
+        the revoked token record (first one) for callers that expect
+        ``Optional[GovernanceToken]``.
         """
         tokens = await self._repo.get_by_agent(agent_did)
         if not tokens:
@@ -485,9 +482,8 @@ class TokenManager:
         """Look up a token by agent DID.
 
         The repo returns a list (multiple tokens per DID are possible in
-        theory, but all legacy call sites assume a single active token
-        per DID). This helper preserves the single-token-per-DID
-        convention: returns the first token or ``None``.
+        theory, but all call sites assume a single active token per DID).
+        Returns the first token or ``None``.
         """
         tokens = await self._repo.get_by_agent(agent_did)
         if not tokens:

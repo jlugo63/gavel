@@ -251,7 +251,7 @@ class TestRequire:
                 permission=Permission.ENROLL_AGENT,
             )
         assert hasattr(exc.value, "decision")
-        assert exc.value.decision.allowed is False  # type: ignore[attr-defined]
+        assert exc.value.decision.allowed is False
 
     def test_require_returns_decision_on_allow(self):
         ac = AccessChecker()
