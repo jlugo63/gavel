@@ -22,6 +22,8 @@ export const GavelState = {
   agents: {},         // agent_id -> full agent record from API
   chains: {},         // chain_id -> chain data from API
   enrollments: {},    // agent_id -> enrollment record
+  events: [],         // recent SSE events for the event stream panel (newest first)
+  gateChecks: [],     // gate_check events for the gate activity panel (newest first)
   graph: {            // derived graph model (rebuilt by graph-model.js)
     nodes: [],
     edges: [],
@@ -191,6 +193,25 @@ export const GavelState = {
   },
 
   /**
+   * Fetch all chains from the API, populate the chains map,
+   * rebuild the graph, and notify.
+   */
+  async fetchChains() {
+    try {
+      const res = await fetch('/v1/chains');
+      if (!res.ok) throw new Error(`GET /v1/chains → ${res.status}`);
+      const chains = await res.json();
+      GavelState.chains = {};
+      for (const chain of chains) {
+        GavelState.chains[chain.chain_id] = chain;
+      }
+      GavelState.rebuildGraph();
+    } catch (err) {
+      console.error('[GavelState] fetchChains failed:', err);
+    }
+  },
+
+  /**
    * Fetch system status from the API.
    * @returns {object|null} status data or null on failure
    */
@@ -235,10 +256,18 @@ export const GavelState = {
 
     es.onopen = () => {
       console.log('[GavelState] SSE connected');
+      const ind = document.getElementById('conn-indicator');
+      const txt = document.getElementById('conn-text');
+      if (ind) { ind.classList.remove('conn-dead'); ind.classList.add('conn-live'); }
+      if (txt) txt.textContent = 'Live';
     };
 
     es.onerror = () => {
       console.warn('[GavelState] SSE connection lost, reconnecting in 3s...');
+      const ind = document.getElementById('conn-indicator');
+      const txt = document.getElementById('conn-text');
+      if (ind) { ind.classList.remove('conn-live'); ind.classList.add('conn-dead'); }
+      if (txt) txt.textContent = 'Reconnecting...';
       es.close();
       GavelState._eventSource = null;
       GavelState._reconnectTimer = setTimeout(() => GavelState.connectSSE(), 3000);
@@ -285,6 +314,16 @@ export const GavelState = {
   _handleSSEEvent(data) {
     const eventType = data.event_type;
     const payload = data.payload || {};
+
+    // Push to the event log (cap at 200 entries)
+    GavelState.events.unshift(data);
+    if (GavelState.events.length > 200) GavelState.events.length = 200;
+
+    // Track gate checks separately
+    if (eventType === 'gate_check') {
+      GavelState.gateChecks.unshift(data);
+      if (GavelState.gateChecks.length > 100) GavelState.gateChecks.length = 100;
+    }
 
     // --- Agent-level events ---
     if (eventType === 'agent_registered') {

@@ -19,6 +19,7 @@
     --amber: #fdcb6e; --amber-dim: rgba(253,203,110,0.10); --amber-border: rgba(253,203,110,0.30);
     --blue: #74b9ff; --blue-dim: rgba(116,185,255,0.10);
     --cyan: #81ecec; --cyan-dim: rgba(129,236,236,0.10);
+    --sidebar-w: 64px;
     --sidebar-w: 48px;
     --inspector-w: 320px;
   }
@@ -84,8 +85,8 @@
   }
   .sidebar-item:hover { color: var(--text2); background: rgba(108,92,231,0.05); }
   .sidebar-item.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); }
-  .sidebar-icon { font-size: 18px; line-height: 1; margin-bottom: 2px; }
-  .sidebar-label { font-size: 7px; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; line-height: 1.2; font-weight: 600; }
+  .sidebar-icon { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+  .sidebar-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; line-height: 1.2; font-weight: 600; }
 
   /* ── Main content ── */
   .main-content {
@@ -770,15 +771,12 @@
      JS MODULE BOOTSTRAP
      ════════════════════════════════════════════════════════════════ -->
 <script type="module">
-  import { GavelState } from '/static/js/state.js';
-  import { TopologyRenderer } from '/static/js/topology.js';
-  import { InspectorPanel } from '/static/js/inspector.js';
-  import { initDashboard } from '/static/js/dashboard.js';
+  import { GavelState } from '/static/js/state.js?v=3';
+  import { TopologyRenderer } from '/static/js/topology.js?v=3';
+  import { InspectorPanel } from '/static/js/inspector.js?v=3';
+  import { initDashboard } from '/static/js/dashboard.js?v=3';
 
-  // Initialize
-  await GavelState.fetchAgents();
-  GavelState.connectSSE();
-
+  // Initialize renderers first, then fetch data so subscribers fire
   const topology = new TopologyRenderer('#topology-canvas');
   const inspector = new InspectorPanel('#inspector-panel');
   const dashboard = initDashboard();
@@ -788,6 +786,10 @@
     inspector.update(GavelState);
     dashboard.update(GavelState);
   });
+
+  // Now fetch data — subscribers are registered, so UI updates on first load
+  await Promise.all([GavelState.fetchAgents(), GavelState.fetchChains()]);
+  GavelState.connectSSE();
 </script>
 
 </body>

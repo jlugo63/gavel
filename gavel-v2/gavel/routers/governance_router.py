@@ -558,6 +558,25 @@ async def execute(
     )
 
 
+@governance_router.get("/chains")
+async def list_chains(
+    chain_repo: ChainRepository = Depends(get_chain_repo),
+    separation: SeparationOfPowers = Depends(get_separation),
+):
+    """List all governance chains with summary data."""
+    chains = await chain_repo.list_all()
+    return [
+        {
+            "chain_id": c.chain_id,
+            "status": c.status.value,
+            "roster": separation.get_chain_roster(c.chain_id),
+            "timeline": c.to_timeline(),
+            "event_count": len(c.events),
+        }
+        for c in chains
+    ]
+
+
 @governance_router.get("/chain/{chain_id}")
 async def get_chain(
     chain_id: str,

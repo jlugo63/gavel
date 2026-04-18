@@ -28,8 +28,8 @@ const EDGE_STYLES = {
   EXECUTION: { stroke: '#81ecec', width: 1.5, dash: '6,3', anim: true },
   CONSTRAINT: { stroke: 'rgba(255,107,107,0.3)', width: 1, dash: '2,4', anim: false },
 };
-const AGENT_RADIUS = 28;
-const ENGINE_RADIUS = 45;
+const AGENT_RADIUS = 36;
+const ENGINE_RADIUS = 55;
 const TRANSITION_MS = 500;
 
 // ---------------------------------------------------------------------------
@@ -446,9 +446,10 @@ export class TopologyRenderer {
       .append('g')
       .attr('class', 'topo-node')
       .attr('cursor', 'pointer')
+      .attr('opacity', 0)
       .attr('transform', (d) => {
         const p = pos.get(d.id) || { x: 0, y: 0 };
-        return `translate(${p.x},${p.y}) scale(0)`;
+        return `translate(${p.x},${p.y}) scale(1)`;
       });
 
     // Build inner elements on enter
@@ -470,21 +471,21 @@ export class TopologyRenderer {
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'central')
           .attr('fill', '#ffffff')
-          .attr('font-size', '13px')
+          .attr('font-size', '15px')
           .attr('font-weight', '700')
           .attr('font-family', "'Inter', sans-serif")
           .text('Policy')
-          .attr('y', -7);
+          .attr('y', -9);
         g.append('text')
           .attr('class', 'engine-label-2')
           .attr('text-anchor', 'middle')
           .attr('dominant-baseline', 'central')
           .attr('fill', '#ffffff')
-          .attr('font-size', '13px')
+          .attr('font-size', '15px')
           .attr('font-weight', '700')
           .attr('font-family', "'Inter', sans-serif")
           .text('Engine')
-          .attr('y', 9);
+          .attr('y', 11);
       } else {
         // Agent circle
         g.append('circle')
@@ -510,18 +511,19 @@ export class TopologyRenderer {
           .attr('class', 'node-label')
           .attr('text-anchor', 'middle')
           .attr('fill', '#e8e8ef')
-          .attr('font-size', '12px')
+          .attr('font-size', '14px')
+          .attr('font-weight', '600')
           .attr('font-family', "'Inter', sans-serif")
-          .attr('y', -AGENT_RADIUS - 10);
+          .attr('y', -AGENT_RADIUS - 12);
 
         // Tier badge below
         g.append('text')
           .attr('class', 'tier-badge')
           .attr('text-anchor', 'middle')
           .attr('fill', '#9898a8')
-          .attr('font-size', '9px')
+          .attr('font-size', '10px')
           .attr('font-family', "'JetBrains Mono', monospace")
-          .attr('y', AGENT_RADIUS + 16);
+          .attr('y', AGENT_RADIUS + 20);
       }
     });
 
