@@ -68,6 +68,8 @@ export class TopologyRenderer {
     this._svg = d3.select(svgSelector);
     this._width = 0;
     this._height = 0;
+    this._rawWidth = 0;
+    this._rawHeight = 0;
     this._positions = new Map();
 
     // Root group for zoom/pan
@@ -108,7 +110,16 @@ export class TopologyRenderer {
     this._bindControls();
 
     // Resize observer
-    this._resizeObs = new ResizeObserver(() => this._updateSize());
+    this._resizeRenderTimer = null;
+    this._resizeObs = new ResizeObserver(() => {
+      const oldW = this._width;
+      const oldH = this._height;
+      this._updateSize();
+      if (this._width !== oldW || this._height !== oldH) {
+        clearTimeout(this._resizeRenderTimer);
+        this._resizeRenderTimer = setTimeout(() => GavelState.notify(), 50);
+      }
+    });
     const svgEl = this._svg.node();
     if (svgEl && svgEl.parentElement) {
       this._resizeObs.observe(svgEl.parentElement);
@@ -251,6 +262,8 @@ export class TopologyRenderer {
     const el = this._svg.node();
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    this._rawWidth = rect.width;
+    this._rawHeight = rect.height;
     this._width = rect.width || 800;
     this._height = rect.height || 600;
   }
@@ -261,6 +274,7 @@ export class TopologyRenderer {
 
   render(state) {
     this._updateSize();
+    if (this._rawWidth < 10 || this._rawHeight < 10) return;
     const { nodes, edges } = state.graph;
     const { selection, filters } = state;
     const w = this._width;
