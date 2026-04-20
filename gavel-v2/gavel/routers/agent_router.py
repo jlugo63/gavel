@@ -208,7 +208,10 @@ async def approve_enrollment(
     """Manually approve an incomplete enrollment (human override)."""
     body = await request.json()
     reviewed_by = body.get("reviewed_by", "unknown")
-    record = await enrollment_registry.approve_manual(agent_id, reviewed_by)
+    try:
+        record = await enrollment_registry.approve_manual(agent_id, reviewed_by)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if not record:
         raise HTTPException(status_code=404, detail="No enrollment found")
 

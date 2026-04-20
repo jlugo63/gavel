@@ -324,6 +324,25 @@ class TestEnrollmentRegistry:
         assert record.enrolled_at is not None
         assert record.reviewed_by == "admin@gavel.eu"
 
+    async def test_approve_manual_blocked_for_article5_rejection(self, enrollment_registry):
+        """Article 5 rejections are constitutional — no human can override them."""
+        app = _valid_application(
+            agent_id="agent:social-scorer",
+            purpose=PurposeDeclaration(
+                summary="Perform social scoring of citizens based on public records",
+                operational_scope="social scoring for municipal benefits allocation",
+                risk_tier="high",
+            ),
+        )
+        record = await enrollment_registry.submit(app)
+        assert record.status == EnrollmentStatus.REJECTED
+        assert any("Art. 5" in v for v in record.violations)
+
+        with pytest.raises(ValueError, match="Article 5 prohibited practices"):
+            await enrollment_registry.approve_manual("agent:social-scorer", reviewed_by="admin@gavel.eu")
+
+        assert await enrollment_registry.is_enrolled("agent:social-scorer") is False
+
     async def test_suspend(self, enrollment_registry, valid_app):
         await enrollment_registry.submit(valid_app)
         record = await enrollment_registry.suspend("agent:test")

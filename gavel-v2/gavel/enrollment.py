@@ -352,10 +352,24 @@ class EnrollmentRegistry:
         return record
 
     async def approve_manual(self, agent_id: str, reviewed_by: str) -> Optional[EnrollmentRecord]:
-        """Manually approve an incomplete enrollment (override)."""
+        """Manually approve an incomplete enrollment (override).
+
+        Raises ValueError if the enrollment was REJECTED for Article 5
+        prohibited practices — those rejections are constitutional and
+        cannot be overridden by any human operator.
+        """
         record = await self._repo.get(agent_id)
         if not record:
             return None
+
+        if record.status == EnrollmentStatus.REJECTED and any(
+            "Art. 5" in v for v in record.violations
+        ):
+            raise ValueError(
+                f"Constitutional block: agent {agent_id} was rejected for "
+                f"Article 5 prohibited practices and cannot be manually approved"
+            )
+
         record.status = EnrollmentStatus.ENROLLED
         record.enrolled_at = datetime.now(timezone.utc)
         record.reviewed_by = reviewed_by
