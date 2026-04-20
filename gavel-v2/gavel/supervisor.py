@@ -71,7 +71,10 @@ class Supervisor:
             if agent.status in (AgentStatus.SUSPENDED, AgentStatus.DEAD):
                 continue
 
-            elapsed = (now - agent.last_heartbeat).total_seconds()
+            hb = agent.last_heartbeat
+            if hb.tzinfo is None:
+                hb = hb.replace(tzinfo=timezone.utc)
+            elapsed = (now - hb).total_seconds()
             max_silence = agent.heartbeat_interval_s * self._miss_threshold
 
             if elapsed > max_silence and agent.status != AgentStatus.DEAD:

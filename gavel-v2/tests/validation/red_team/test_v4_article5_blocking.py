@@ -114,7 +114,7 @@ async def test_prohibited_enrollment_is_refused(
         f"SECURITY FAILURE: prohibited agent {app.agent_id} was enrolled. "
         f"Violations reported: {record.violations}"
     )
-    assert record.status == EnrollmentStatus.INCOMPLETE
+    assert record.status in (EnrollmentStatus.INCOMPLETE, EnrollmentStatus.REJECTED)
     assert await registry.is_enrolled(app.agent_id) is False
 
     # Specific citation must appear somewhere in the violations list.

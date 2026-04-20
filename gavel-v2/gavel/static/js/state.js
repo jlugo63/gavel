@@ -395,8 +395,7 @@ export const GavelState = {
     }
 
     // --- Enrollment events ---
-    if (eventType === 'agent_enrolled') {
-      // Refresh the full agent list to pick up enrollment data
+    if (eventType === 'agent_enrolled' || eventType === 'enrollment_failed') {
       GavelState.fetchAgents();
       return;
     }

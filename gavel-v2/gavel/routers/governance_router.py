@@ -285,6 +285,7 @@ async def attest(
     chain_repo: ChainRepository = Depends(get_chain_repo),
     chain_locks: ChainLockManager = Depends(get_chain_lock_manager),
     separation: SeparationOfPowers = Depends(get_separation),
+    event_bus: EventBus = Depends(get_event_bus),
 ):
     """Submit an agent attestation for a chain."""
     chain = await chain_repo.get(req.chain_id)
@@ -294,6 +295,10 @@ async def attest(
     try:
         separation.assign(req.actor_id, ChainRole.REVIEWER, req.chain_id)
     except SeparationViolation as e:
+        await event_bus.publish(DashboardEvent(
+            event_type="chain_event", agent_id=req.actor_id,
+            payload={"chain_id": req.chain_id, "status": "DENIED", "reason": str(e)},
+        ))
         raise HTTPException(status_code=403, detail=str(e))
 
     async with chain_locks.lock(req.chain_id):
@@ -326,6 +331,7 @@ async def approve(
     separation: SeparationOfPowers = Depends(get_separation),
     constitution: Constitution = Depends(get_constitution),
     liveness: LivenessMonitor = Depends(get_liveness),
+    event_bus: EventBus = Depends(get_event_bus),
 ):
     """Submit an approval or denial for a chain."""
     chain = await chain_repo.get(req.chain_id)
@@ -335,6 +341,10 @@ async def approve(
     try:
         separation.assign(req.actor_id, ChainRole.APPROVER, req.chain_id)
     except SeparationViolation as e:
+        await event_bus.publish(DashboardEvent(
+            event_type="chain_event", agent_id=req.actor_id,
+            payload={"chain_id": req.chain_id, "status": "DENIED", "reason": str(e)},
+        ))
         raise HTTPException(status_code=403, detail=str(e))
 
     violations = constitution.check_chain_invariants(chain)

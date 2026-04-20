@@ -121,6 +121,11 @@ async def enroll_agent(
             capabilities=app_data.capabilities.tools,
         )
 
+    is_prohibited = any("Art. 5" in v or "prohibited" in v.lower() for v in record.violations)
+
+    if record.status != EnrollmentStatus.ENROLLED and is_prohibited and agent:
+        await agent_registry.kill(app_data.agent_id, reason="EU AI Act Art. 5: prohibited practice")
+
     await event_bus.publish(DashboardEvent(
         event_type="agent_enrolled" if record.status == EnrollmentStatus.ENROLLED else "enrollment_failed",
         agent_id=app_data.agent_id,

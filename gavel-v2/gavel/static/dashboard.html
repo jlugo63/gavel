@@ -127,9 +127,9 @@
      ════════════════════════════════════════════════════════════════ */
   .grid {
     display: grid; grid-template-columns: 1fr 1.3fr 1fr; grid-template-rows: 1fr 1fr;
-    gap: 1px; background: var(--border); flex: 1;
+    gap: 1px; background: var(--border); flex: 1; min-height: 0;
   }
-  .panel { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; }
+  .panel { background: var(--bg); display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
   .panel-head {
     padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
     display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
@@ -186,6 +186,8 @@
   .chip-blue { background: var(--blue-dim); color: var(--blue); }
   .chip-accent { background: var(--accent-dim); color: var(--accent); }
   .chip-cyan { background: var(--cyan-dim); color: var(--cyan); }
+  .chip-active { background: var(--green-dim); color: var(--green); }
+  .chip-rejected { background: var(--red-dim); color: var(--red); }
   .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
   .dot-active { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .dot-idle { background: var(--amber); }
@@ -786,6 +788,9 @@
     inspector.update(GavelState);
     dashboard.update(GavelState);
   });
+
+  // Expose for external tooling (Playwright, devtools)
+  window.GavelState = GavelState;
 
   // Now fetch data — subscribers are registered, so UI updates on first load
   await Promise.all([GavelState.fetchAgents(), GavelState.fetchChains()]);

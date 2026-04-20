@@ -131,7 +131,7 @@ function renderChain(chainId) {
   const status = (chain.status || 'PENDING').toUpperCase();
   const integrity = chain.integrity !== false;
   const roster = chain.roster || {};
-  const evidence = chain.evidence || [];
+  const evidence = chain.events || chain.timeline || [];
 
   // Integrity badge
   const integrityBadge = integrity

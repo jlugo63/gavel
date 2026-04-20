@@ -61,7 +61,7 @@ function renderAgentsTable(agents) {
       <td style="padding:10px 8px;">${tierChip(a.autonomy_tier)}</td>
       <td style="padding:10px 8px;">${trustBar(a.trust_score)}</td>
       <td style="padding:10px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3);">${esc((a.did || '').substring(0, 22))}...</td>
-      <td style="padding:10px 8px;"><span class="chip chip-active">ENROLLED</span></td>
+      <td style="padding:10px 8px;"><span class="chip ${a.enrollment_status === 'ENROLLED' ? 'chip-active' : 'chip-rejected'}">${esc((a.enrollment_status || 'PENDING'))}</span></td>
       <td style="padding:10px 8px;font-size:12px;color:var(--text2);">${esc(a.owner || '')}</td>
     </tr>
   `).join('');
@@ -152,6 +152,7 @@ function renderEventStream(events) {
   const typeColors = {
     agent_registered: 'var(--green)', agent_enrolled: 'var(--green)',
     agent_killed: 'var(--red)', agent_dead: 'var(--red)',
+    enrollment_failed: 'var(--red)',
     chain_event: 'var(--accent)', gate_check: 'var(--amber)',
     escalation: 'var(--amber)', incident_created: 'var(--red)',
   };
@@ -168,6 +169,35 @@ function renderEventStream(events) {
       <span style="color:var(--text3);white-space:nowrap;">${timeAgo(e.timestamp)}</span>
     </div>`;
   }).join('');
+}
+
+function renderSLA() {
+  const el = document.getElementById('sla-panel');
+  const badge = document.getElementById('sla-count');
+  if (!el) return;
+  fetch('/v1/liveness').then(r => r.json()).then(data => {
+    const chains = data.chains || {};
+    const entries = Object.entries(chains);
+    if (badge) badge.textContent = entries.length;
+    if (entries.length === 0) {
+      el.innerHTML = '<div class="empty-state">No active SLA timers</div>';
+      return;
+    }
+    el.innerHTML = entries.map(([cid, info]) => {
+      const pct = Math.min(100, Math.round((info.elapsed_fraction || 0) * 100));
+      const remaining = Math.max(0, Math.round(info.remaining_seconds || 0));
+      const level = (info.level || 'NORMAL').toLowerCase();
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      return `<div class="sla-row">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);">${esc(cid.substring(0, 12))}</span>
+          <span style="font-size:10px;color:var(--text3);">${mins}m ${secs}s left</span>
+        </div>
+        <div class="sla-bar-bg"><div class="sla-bar-fill sla-${level}" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+  }).catch(() => {});
 }
 
 function renderTimeline(chains) {
@@ -479,6 +509,7 @@ export function initDashboard() {
       renderGateActivity(state.gateChecks);
       renderEventStream(state.events);
       renderTimeline(state.chains);
+      renderSLA();
 
       // Re-fetch incidents on incident SSE events
       const hasIncidentEvent = state.events.length > 0 &&

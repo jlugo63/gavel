@@ -297,9 +297,16 @@ class EnrollmentRegistry:
         """Submit an enrollment application. Validates and returns the record."""
         passed, violations = self._validator.validate(application)
 
+        if passed:
+            status = EnrollmentStatus.ENROLLED
+        elif any("Art. 5" in v or "prohibited" in v.lower() for v in violations):
+            status = EnrollmentStatus.REJECTED
+        else:
+            status = EnrollmentStatus.INCOMPLETE
+
         record = EnrollmentRecord(
             agent_id=application.agent_id,
-            status=EnrollmentStatus.ENROLLED if passed else EnrollmentStatus.INCOMPLETE,
+            status=status,
             application=application,
             enrolled_at=datetime.now(timezone.utc) if passed else None,
             violations=violations,
@@ -309,6 +316,11 @@ class EnrollmentRegistry:
 
         if passed:
             log.info("Agent %s enrolled successfully (owner: %s)", application.agent_id, application.owner)
+        elif status == EnrollmentStatus.REJECTED:
+            log.warning(
+                "Agent %s enrollment REJECTED — prohibited practice: %s",
+                application.agent_id, "; ".join(violations),
+            )
         else:
             log.warning(
                 "Agent %s enrollment INCOMPLETE — %d violations: %s",
