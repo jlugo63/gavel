@@ -121,6 +121,9 @@ class AgentRegistry:
         if not record:
             return None
 
+        if record.status in (AgentStatus.SUSPENDED, AgentStatus.DEAD):
+            return record
+
         record.last_heartbeat = datetime.now(timezone.utc)
         if record.status == AgentStatus.IDLE:
             record.status = AgentStatus.ACTIVE

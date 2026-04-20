@@ -75,13 +75,19 @@ function renderKillSwitch(agents) {
     el.innerHTML = '<div style="padding:16px;color:var(--text3);font-style:italic;">No agents to manage</div>';
     return;
   }
-  el.innerHTML = list.map(a => `
+  el.innerHTML = list.map(a => {
+    const dead = a.status === 'SUSPENDED' || a.status === 'DEAD';
+    const btnStyle = dead
+      ? 'background:var(--bg3);color:var(--text3);border:none;padding:6px 14px;border-radius:4px;cursor:default;font-size:11px;font-weight:600;opacity:0.5;'
+      : 'background:var(--red);color:white;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;';
+    const btnLabel = dead ? a.status : 'KILL';
+    return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);">
       <span style="font-size:13px;">${statusDot(a.status)}<strong>${esc(a.display_name || a.agent_id)}</strong>
         <span class="chip chip-${(a.status || '').toLowerCase()}" style="margin-left:8px;font-size:10px;">${a.status}</span></span>
-      <button class="kill-btn" data-agent="${esc(a.agent_id)}" style="background:var(--red);color:white;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;">KILL</button>
-    </div>
-  `).join('') + `
+      <button class="kill-btn" data-agent="${esc(a.agent_id)}" ${dead ? 'disabled' : ''} style="${btnStyle}">${btnLabel}</button>
+    </div>`;
+  }).join('') + `
     <div style="padding:12px;text-align:center;">
       <button id="kill-all-btn" style="background:var(--red);color:white;border:none;padding:8px 24px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;letter-spacing:0.5px;">KILL ALL AGENTS</button>
     </div>`;

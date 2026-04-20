@@ -367,6 +367,10 @@ export const GavelState = {
     }
 
     if (eventType === 'agent_heartbeat') {
+      const existing = GavelState.agents.find(a => a.agent_id === data.agent_id);
+      if (existing && (existing.status === 'SUSPENDED' || existing.status === 'DEAD')) {
+        return;
+      }
       GavelState.updateAgent({
         agent_id: data.agent_id,
         last_heartbeat: data.timestamp,
