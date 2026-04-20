@@ -390,12 +390,15 @@ class EnrollmentRegistry:
 # ── Governance Token helpers ─────────────────────────────────
 
 def _generate_did(agent_id: str) -> str:
-    """Generate a Gavel decentralized identifier for an agent.
+    """Generate a deterministic Gavel DID for an agent.
 
     Format: did:gavel:agent:<short_hash>
+
+    The DID is derived solely from agent_id so that all tokens issued
+    to the same agent share a single DID.  This ensures that revoking
+    by DID reaches every token the agent has ever been issued.
     """
-    hash_input = f"{agent_id}:{secrets.token_hex(8)}"
-    short_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+    short_hash = hashlib.sha256(agent_id.encode()).hexdigest()[:16]
     return f"did:gavel:agent:{short_hash}"
 
 
@@ -498,6 +501,16 @@ class TokenManager:
 
         log.info("Governance token revoked for DID: %s", agent_did)
         return gov_token
+
+    async def revoke_by_agent_id(self, agent_id: str) -> Optional[GovernanceToken]:
+        """Revoke every token for an agent, looked up by agent_id.
+
+        Derives the deterministic DID from agent_id and delegates to
+        :meth:`revoke`. Callers that only know the agent_id (kill-switch,
+        hub) should prefer this over :meth:`revoke`.
+        """
+        agent_did = _generate_did(agent_id)
+        return await self.revoke(agent_did)
 
     async def is_valid(self, token: str) -> bool:
         """Quick boolean check: is this token currently valid?"""

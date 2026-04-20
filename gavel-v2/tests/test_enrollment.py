@@ -382,11 +382,11 @@ class TestGovernanceToken:
         assert 3599 <= delta <= 3601
 
     async def test_token_uniqueness(self, token_manager):
-        """Two tokens for the same agent should be different."""
+        """Two tokens for the same agent have different token strings but the same DID."""
         t1 = await token_manager.issue("agent:test")
         t2 = await token_manager.issue("agent:test")
         assert t1.token != t2.token
-        assert t1.agent_did != t2.agent_did  # different DID each time
+        assert t1.agent_did == t2.agent_did  # deterministic DID from agent_id
 
     async def test_token_with_scope(self, token_manager):
         scope = {"tools": ["Read", "Write"], "allowed_actions": ["read"]}
@@ -497,3 +497,29 @@ class TestTokenRevocation:
 
     async def test_get_by_did_unknown(self, token_manager):
         assert await token_manager.get_by_did("did:gavel:agent:nope") is None
+
+    async def test_revoke_follows_agent_identity(self, token_manager):
+        """Revoking by DID invalidates all tokens ever issued to that agent."""
+        t1 = await token_manager.issue("agent:test")
+        t2 = await token_manager.issue("agent:test")
+        assert t1.agent_did == t2.agent_did
+
+        await token_manager.revoke(t1.agent_did)
+        assert await token_manager.is_valid(t1.token) is False
+        assert await token_manager.is_valid(t2.token) is False
+
+    async def test_revoke_by_agent_id(self, token_manager):
+        """revoke_by_agent_id reaches all tokens without knowing the DID."""
+        t1 = await token_manager.issue("agent:target")
+        t2 = await token_manager.issue("agent:target")
+        bystander = await token_manager.issue("agent:bystander")
+
+        result = await token_manager.revoke_by_agent_id("agent:target")
+        assert result is not None
+        assert await token_manager.is_valid(t1.token) is False
+        assert await token_manager.is_valid(t2.token) is False
+        assert await token_manager.is_valid(bystander.token) is True
+
+    async def test_revoke_by_agent_id_unknown(self, token_manager):
+        result = await token_manager.revoke_by_agent_id("agent:nonexistent")
+        assert result is None
