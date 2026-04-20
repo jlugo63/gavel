@@ -382,6 +382,13 @@ async def approve(
             )
             await chain_repo.save(chain)
 
+            await event_bus.publish(DashboardEvent(
+                event_type="chain_event",
+                agent_id=req.actor_id,
+                chain_id=req.chain_id,
+                payload={"status": "APPROVED", "phase": "APPROVAL_GRANTED"},
+            ))
+
             return {
                 "chain_id": req.chain_id,
                 "status": "APPROVED",
@@ -399,6 +406,13 @@ async def approve(
             )
             liveness.resolve(req.chain_id, "DENIED")
             await chain_repo.save(chain)
+
+            await event_bus.publish(DashboardEvent(
+                event_type="chain_event",
+                agent_id=req.actor_id,
+                chain_id=req.chain_id,
+                payload={"status": "DENIED", "phase": "APPROVAL_DENIED"},
+            ))
 
             return {
                 "chain_id": req.chain_id,
