@@ -377,6 +377,7 @@ function renderConstitution() {
 }
 
 export function initDashboard() {
+  GavelState.fetchRecentEvents();
   fetchAndRenderIncidents();
   fetchAndRenderCompliance();
   fetchAndRenderConstitution();

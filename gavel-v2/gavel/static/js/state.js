@@ -242,6 +242,19 @@ export const GavelState = {
     }
   },
 
+  async fetchRecentEvents() {
+    try {
+      const res = await fetch('/v1/events/recent?limit=200');
+      if (!res.ok) return;
+      const events = await res.json();
+      for (const data of events) {
+        GavelState._handleSSEEvent(data);
+      }
+    } catch (err) {
+      console.error('[GavelState] fetchRecentEvents failed:', err);
+    }
+  },
+
   // -----------------------------------------------------------------------
   // SSE connection
   // -----------------------------------------------------------------------

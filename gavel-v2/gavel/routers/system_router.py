@@ -46,6 +46,21 @@ class TokenValidateRequest(BaseModel):
 system_router = APIRouter(tags=["system"])
 
 
+@system_router.get("/events/recent")
+async def recent_events(
+    limit: int = 200,
+    event_bus: EventBus = Depends(get_event_bus),
+):
+    """Return recent events from the ring buffer or Redis Streams."""
+    if hasattr(event_bus, "replay"):
+        events = await event_bus.replay(count=limit)
+        return [e.model_dump(mode="json") for e in events]
+    if hasattr(event_bus, "recent_events"):
+        events = event_bus.recent_events(limit)
+        return [e.model_dump(mode="json") for e in events]
+    return []
+
+
 @system_router.get("/events/stream")
 async def event_stream(
     event_bus: EventBus = Depends(get_event_bus),

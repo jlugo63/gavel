@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, Protocol, runtime_checkable
@@ -88,9 +89,11 @@ class InProcessEventBus:
     def __init__(self):
         self._subscribers: list[asyncio.Queue[DashboardEvent]] = []
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._history: deque[DashboardEvent] = deque(maxlen=500)
 
     async def publish(self, event: DashboardEvent) -> None:
-        """Push event to all subscriber queues."""
+        """Push event to all subscriber queues and retain in history."""
+        self._history.append(event)
         async with self._lock:
             dead = []
             for i, queue in enumerate(self._subscribers):
@@ -101,6 +104,11 @@ class InProcessEventBus:
             # Remove dead subscribers (full queues = disconnected clients)
             for i in reversed(dead):
                 self._subscribers.pop(i)
+
+    def recent_events(self, limit: int = 200) -> list[DashboardEvent]:
+        """Return the most recent events from the ring buffer."""
+        events = list(self._history)
+        return events[-limit:]
 
     async def subscribe(self) -> AsyncGenerator[DashboardEvent, None]:
         """Yield events as they arrive. One generator per dashboard client."""

@@ -237,7 +237,8 @@ async def lifespan(app_instance: FastAPI):
 
     _load_cedar_rules(get_agent_os())
 
-    bus = get_event_bus()
+    from gavel.dependencies import init_event_bus
+    bus = await init_event_bus()
     agent_registry = AgentRegistry(bus, AgentRepository(sm))
     sup = Supervisor(bus, agent_registry, get_liveness())
     await sup.start()
