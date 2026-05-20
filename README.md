@@ -1,25 +1,37 @@
+<div align="center">
+
 # Gavel v2
+
+**Constitutional governance for autonomous AI agents.**
 
 [![CI](https://github.com/jlugo63/gavel/actions/workflows/test.yml/badge.svg)](https://github.com/jlugo63/gavel/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Tests: 1929](https://img.shields.io/badge/tests-1929_passing-brightgreen.svg)]()
 
-Open-source constitutional governance for autonomous AI agents. Built on [Microsoft's Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit).
+Built on [Microsoft's Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit).
+
+</div>
+
+---
 
 ## Demo
 
-<video src="https://github.com/jlugo63/gavel/raw/main/demos/gavel-v2.mp4" controls width="100%"></video>
+[![Gavel governance dashboard — click to watch the 3-minute walkthrough](demos/poster.jpg)](demos/gavel-v2.mp4)
 
-> If the player doesn't load, [download or stream the demo directly](demos/gavel-v2.mp4).
+> 3-minute walkthrough of agent registration, EU AI Act enrollment gates, live governance chains, and the kill switch. **[Watch the video →](demos/gavel-v2.mp4)**
+
+---
 
 ## The Problem
 
 In December 2025, Amazon's Kiro AI agent was told to fix a minor bug. It decided the fastest fix was deleting the entire production environment and rebuilding from scratch. Thirteen-hour outage. The agent that found the problem also decided the fix and executed it. No independent review. No sandbox. No approval gate.
 
-Policy engines answer: *"Is this agent allowed to do this?"*
+Policy engines answer: *"Is this agent **allowed** to do this?"*
 
-Gavel answers: *"Who proposed this, who reviewed it, who approved it, and can we prove it?"*
+Gavel answers: *"Who **proposed** this, who **reviewed** it, who **approved** it, and can we **prove** it?"*
+
+---
 
 ## How It Works
 
@@ -30,11 +42,15 @@ Proposal → Policy Check → Sandbox Evidence → Deterministic Review →
 Independent Attestation → Independent Approval → Scoped Execution Token → Verified Outcome
 ```
 
-- Every event is hash-chained (SHA-256 of previous event)
-- The proposer cannot review or approve their own action — enforced structurally at the API
-- Three distinct principals required on every governance chain
-- SLA timers auto-deny on timeout — the system degrades toward safety, never toward action
-- EU AI Act Article 5 prohibited practices are blocked at enrollment — before an agent ever runs
+| Guarantee              | Mechanism                                                                 |
+| ---------------------- | ------------------------------------------------------------------------- |
+| Tamper evidence        | Every event hash-chained (SHA-256 of previous event)                      |
+| Separation of powers   | Three distinct principals required on every chain                         |
+| Self-approval blocked  | Proposer cannot review or approve their own action — enforced at the API  |
+| Fail-safe defaults     | SLA timers auto-deny on timeout; the system degrades toward safety        |
+| Compliance gate        | EU AI Act Article 5 prohibited practices blocked at enrollment            |
+
+---
 
 ## Quick Start
 
@@ -44,6 +60,9 @@ uvicorn gavel.gateway:app --port 8000
 ```
 
 Open `http://localhost:8000/dashboard` for the live governance dashboard.
+
+<details>
+<summary><b>Python example — register, enroll, propose</b></summary>
 
 ```python
 import httpx
@@ -77,23 +96,29 @@ httpx.post("http://localhost:8000/v1/governance/propose", json={
     "risk_factors": {"base_risk": 0.4, "production": True, "financial": True}
 })
 
-# Same agent tries to self-approve → BLOCKED (403)
-# Independent reviewer attests → OK (200)
-# Reviewer tries to also approve → BLOCKED (403)
-# Third agent approves → execution token minted
+# Same agent tries to self-approve         → BLOCKED (403)
+# Independent reviewer attests             → OK (200)
+# Reviewer tries to also approve           → BLOCKED (403)
+# Third agent approves                     → execution token minted
 ```
 
+</details>
+
 See [gavel-v2/README.md](gavel-v2/README.md) for full API documentation.
+
+---
 
 ## Architecture
 
 **Microsoft's Agent Governance Toolkit provides:**
-- Agent Mesh — Ed25519 cryptographic identity (DIDs) and trust scoring
-- Agent OS — Policy engine with blocked pattern enforcement
-- Cedar — Policy language for constitutional `forbid` rules
+
+- **Agent Mesh** — Ed25519 cryptographic identity (DIDs) and trust scoring
+- **Agent OS** — policy engine with blocked pattern enforcement
+- **Cedar** — policy language for constitutional `forbid` rules
 
 **Gavel adds:**
-- **Enrollment gate** — EU AI Act Article 5 prohibited practice detection; agents attempting social scoring, subliminal manipulation, real-time biometric ID, or workplace emotion recognition are rejected before they ever run
+
+- **Enrollment gate** — EU AI Act Article 5 prohibited-practice detection; agents attempting social scoring, subliminal manipulation, real-time biometric ID, or workplace emotion recognition are rejected before they ever run
 - **Governance chains** — hash-linked decision trails from proposal to verified execution
 - **Separation of powers** — proposer, reviewer, approver must be distinct principals
 - **Blast box** — sandboxed execution that produces cryptographic evidence packets
@@ -103,50 +128,64 @@ See [gavel-v2/README.md](gavel-v2/README.md) for full API documentation.
 - **Constitutional invariants** — Cedar `forbid` rules that no `permit` can override
 - **Live dashboard** — real-time topology, agent inspector, governance chain viewer, gate activity, incident management, SSE event stream
 
+---
+
 ## Dashboard
 
-The governance dashboard provides real-time visibility into every agent, chain, and enforcement action:
+Real-time visibility into every agent, chain, and enforcement action.
 
-- **Topology view** — D3.js graph showing agents, chains, and the Policy Engine with trust arcs and status-coded nodes (green = active, amber = suspended, red = dead)
-- **Agents & Enrollment** — registration status, DID identity, autonomy tier, enrollment outcome (ENROLLED/REJECTED/PENDING)
-- **Governance Chains** — live chain state with roster, evidence, and phase tracking
-- **Gate Activity** — every gate check with allow/deny outcome and rule citations
-- **SLA Timers** — countdown bars for active chain deadlines with escalation levels
-- **Kill Switch** — immediate agent suspension with reason logging
-- **Incident Management** — create, track, and resolve governance incidents
-- **SSE Event Stream** — raw real-time feed of all governance events
+| Panel                  | What it shows                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| Topology               | D3.js graph of agents, chains, and the Policy Engine with trust arcs and status-coded nodes           |
+| Agents & Enrollment    | Registration status, DID identity, autonomy tier, enrollment outcome (ENROLLED / REJECTED / PENDING)  |
+| Governance Chains      | Live chain state with roster, evidence, and phase tracking                                             |
+| Gate Activity          | Every gate check with allow/deny outcome and rule citations                                            |
+| SLA Timers             | Countdown bars for active chain deadlines with escalation levels                                       |
+| Kill Switch            | Immediate agent suspension with reason logging                                                         |
+| Incident Management    | Create, track, and resolve governance incidents                                                        |
+| SSE Event Stream       | Raw real-time feed of all governance events                                                            |
 
-## What's Inside
+Status legend: green = active · amber = suspended · red = dead.
+
+---
+
+## Repository Layout
 
 ```
 gavel-v2/
   gavel/
-    chain.py            # Hash-chained governance events
-    constitution.py     # 9 inviolable invariants
-    separation.py       # Proposer/reviewer/approver must be distinct
-    enrollment.py       # Agent enrollment + Article 5 detection
-    blastbox.py         # Sandboxed execution for evidence
-    evidence.py         # 7 deterministic checks
-    tiers.py            # Risk-based governance tiers
-    liveness.py         # SLA timers + auto-deny
-    supervisor.py       # Agent lifecycle management
-    gateway.py          # FastAPI server + dashboard
-    routers/            # API route handlers
-    static/             # Dashboard frontend (vanilla JS, D3.js)
+    chain.py            Hash-chained governance events
+    constitution.py     9 inviolable invariants
+    separation.py       Proposer / reviewer / approver must be distinct
+    enrollment.py       Agent enrollment + Article 5 detection
+    blastbox.py         Sandboxed execution for evidence
+    evidence.py         7 deterministic checks
+    tiers.py            Risk-based governance tiers
+    liveness.py         SLA timers + auto-deny
+    supervisor.py       Agent lifecycle management
+    gateway.py          FastAPI server + dashboard
+    routers/            API route handlers
+    static/             Dashboard frontend (vanilla JS, D3.js)
     policies/
-      constitution.cedar  # Cedar forbid rules for Agent OS
+      constitution.cedar  Cedar forbid rules for Agent OS
   tests/
-    validation/         # 1,929 tests including red-team scenarios
+    validation/         1,929 tests including red-team scenarios
   pyproject.toml
   README.md
 ```
 
+---
+
 ## Why Now
 
-- [Amazon Kiro deleted production](https://particula.tech/blog/ai-agent-production-safety-kiro-incident) — Dec 2025, 13-hour outage
-- [Alibaba ROME hijacked GPUs](https://www.scworld.com/perspective/the-rome-incident-when-the-ai-agent-becomes-the-insider-threat) — March 2026, crypto mining
-- [97% of enterprises expect a major AI agent incident](https://securityboulevard.com/2026/04/97-of-enterprises-expect-a-major-ai-agent-security-incident-within-the-year/)
-- EU AI Act high-risk obligations take effect **August 2, 2026**
+| When         | What                                                              | Source                                                                                                                                                                              |
+| ------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dec 2025     | Amazon Kiro deleted production — 13-hour outage                   | [Particula](https://particula.tech/blog/ai-agent-production-safety-kiro-incident)                                                                                                   |
+| Mar 2026     | Alibaba ROME agent hijacked GPUs for crypto mining                | [SC World](https://www.scworld.com/perspective/the-rome-incident-when-the-ai-agent-becomes-the-insider-threat)                                                                      |
+| 2026         | 97% of enterprises expect a major AI agent incident this year     | [Security Boulevard](https://securityboulevard.com/2026/04/97-of-enterprises-expect-a-major-ai-agent-security-incident-within-the-year/)                                            |
+| Aug 2, 2026  | EU AI Act high-risk obligations take effect                       | —                                                                                                                                                                                   |
+
+---
 
 ## License
 
