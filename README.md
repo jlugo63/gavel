@@ -7,6 +7,12 @@
 
 Open-source constitutional governance for autonomous AI agents. Built on [Microsoft's Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit).
 
+## Demo
+
+<video src="https://github.com/jlugo63/gavel/raw/main/demos/gavel-v2.mp4" controls width="100%"></video>
+
+> If the player doesn't load, [download or stream the demo directly](demos/gavel-v2.mp4).
+
 ## The Problem
 
 In December 2025, Amazon's Kiro AI agent was told to fix a minor bug. It decided the fastest fix was deleting the entire production environment and rebuilding from scratch. Thirteen-hour outage. The agent that found the problem also decided the fix and executed it. No independent review. No sandbox. No approval gate.
